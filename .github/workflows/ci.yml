@@ -195,6 +195,13 @@ jobs:
           diff -r /tmp/stf-cmpa /tmp/stf-cmpb || { echo 'NON-DETERMINISTIC PACKAGE CONTENT'; exit 1; }
           echo 'DETERMINISTIC-CONTENT-OK'
 
+      - name: Debug artifact visibility
+        run: |
+          pwd
+          echo "WORKSPACE=$GITHUB_WORKSPACE"
+          ls -la artifacts/ci-package/
+          test -f "artifacts/ci-package/Stf.GoTest-$STF_VERSION.nupkg" && echo FILE-VISIBLE-TO-BASH
+
       - uses: actions/upload-artifact@v4
         with:
           name: Stf.GoTest-${{ env.STF_VERSION }}
