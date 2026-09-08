@@ -299,6 +299,62 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(package.read("lib/net8.0/Case.dll"),
                              (folder / "bin/test/Release/net8.0/Case.dll").read_bytes())
 
+    def test_body_shipping_options_select_tests(self):
+        for option, command in (("StfAllowTestSlicePack", "pack"),
+                                ("StfAllowTestSlicePublish", "publish"),
+                                ("StfTest", "pack"), ("StfTest", "publish")):
+            with self.subTest(option=option, command=command):
+                folder = self.project(f"<{option}>true</{option}>",
+                                      name=self._testMethodName + option + command)
+                (folder / "Calc.Test.cs").write_text(
+                    '#if !STF_TEST\n#error Test mode requires STF_TEST\n#endif\n'
+                    'public class Tests { [Xunit.Fact] public void Works() {} }')
+                output = folder / "shipped"
+                self.dotnet(folder, command, "-o", str(output))
+                test_binary = (folder / "bin/test/Release/net8.0/Case.dll").read_bytes()
+                if command == "pack":
+                    with zipfile.ZipFile(output / "Case.1.0.0.nupkg") as package:
+                        self.assertEqual(package.read("lib/net8.0/Case.dll"), test_binary)
+                else:
+                    self.assertEqual((output / "Case.dll").read_bytes(), test_binary)
+                self.assertIn("Passed!", self.dotnet(folder, "test", "-c", "Release", "--no-build"))
+
+    def test_body_no_pack_preserves_test_project(self):
+        folder = self.project("<StfAllowPack>false</StfAllowPack>")
+        self.dotnet(folder, "pack")
+        self.assertFalse(list(folder.rglob("*.nupkg")))
+        self.dotnet(folder, "build")
+        self.assert_prod(folder / "bin/Debug/net8.0")
+        self.assertIn("Passed!", self.dotnet(folder, "test", "--no-build"))
+
+    def test_body_shipping_aliases_and_global_override(self):
+        folder = self.project("<StfAllowTestSlicePack>on</StfAllowTestSlicePack>"
+                              "<StfAllowTestSlicePublish>yes</StfAllowTestSlicePublish>")
+        self.add_targets(folder, '''<Target Name="ObserveMode" BeforeTargets="BeforeBuild">
+          <WriteLinesToFile File="modes.txt" Lines="$(StfTest)" Overwrite="false" />
+        </Target>''')
+        for command in ("pack", "publish"):
+            self.dotnet(folder, command)
+            self.assertIn("true", (folder / "modes.txt").read_text().splitlines())
+            (folder / "modes.txt").unlink()
+            self.dotnet(folder, command, "-p:StfTest=false")
+            self.assertEqual((folder / "modes.txt").read_text().splitlines(), ["false"])
+            (folder / "modes.txt").unlink()
+
+    def test_body_shipping_no_restore_keeps_test_assets(self):
+        folder = self.project("<StfAllowTestSlicePack>true</StfAllowTestSlicePack>"
+                              "<StfAllowTestSlicePublish>true</StfAllowTestSlicePublish>"
+                              "<StfDualBuild>false</StfDualBuild>")
+        self.add_targets(folder, '''<Target Name="ObserveRestore" BeforeTargets="Restore">
+          <WriteLinesToFile File="restored.txt" Lines="$(StfTest)" Overwrite="false" />
+        </Target>''')
+        self.dotnet(folder, "restore")
+        (folder / "restored.txt").unlink()
+        for command in ("pack", "publish"):
+            self.dotnet(folder, command, "--no-restore")
+            self.assertFalse((folder / "restored.txt").exists())
+        self.assertIn("Passed!", self.dotnet(folder, "test", "--no-build", "-c", "Release"))
+
     def test_sdk_pack_test_symbols_docs_and_no_build(self):
         folder = self.project(
             "<GenerateDocumentationFile>true</GenerateDocumentationFile>"

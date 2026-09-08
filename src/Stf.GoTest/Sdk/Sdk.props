@@ -7,7 +7,8 @@
     <_StfShipTests Condition="'$(StfAllowTestSlicePack)' == 'true' OR '$(StfAllowTestSlicePack)' == '1' OR '$(StfAllowTestSlicePack)' == 'yes' OR '$(StfAllowTestSlicePack)' == 'y' OR '$(StfAllowTestSlicePack)' == 'on'">true</_StfShipTests>
     <_StfShipTests Condition="'$(_IsPublishing)' == 'true' AND ('$(StfAllowTestSlicePublish)' == 'true' OR '$(StfAllowTestSlicePublish)' == '1' OR '$(StfAllowTestSlicePublish)' == 'yes' OR '$(StfAllowTestSlicePublish)' == 'y' OR '$(StfAllowTestSlicePublish)' == 'on')">true</_StfShipTests>
     <_StfSkipPack Condition="'$(StfAllowPack)' == 'false' OR '$(StfAllowPack)' == '0' OR '$(StfAllowPack)' == 'no' OR '$(StfAllowPack)' == 'n' OR '$(StfAllowPack)' == 'off'">true</_StfSkipPack>
-    <StfTest Condition="'$(StfTest)' == '' AND '$(_StfShipTests)' != 'true' AND ('$(_IsPublishing)' == 'true' OR ('$(_IsPacking)' == 'true' AND '$(_StfSkipPack)' != 'true'))">false</StfTest>
+    <_StfSdkDefaultedToProd Condition="'$(StfTest)' == '' AND '$(_StfShipTests)' != 'true' AND ('$(_IsPublishing)' == 'true' OR ('$(_IsPacking)' == 'true' AND '$(_StfSkipPack)' != 'true'))">true</_StfSdkDefaultedToProd>
+    <StfTest Condition="'$(_StfSdkDefaultedToProd)' == 'true'">false</StfTest>
   </PropertyGroup>
   <Import Project="../build/Stf.GoTest.props" />
 </Project>

@@ -6,7 +6,7 @@ An MSBuild SDK, distributed as a NuGet package, that brings Go's test model to
 .NET: code and its tests live in the **same project** — no second test project, no `InternalsVisibleTo`.
 `*.Test.cs` files compile into the test slice and are excluded from prod.
 
-- Current version: `0.1.56` (local feed: `artifacts/packages`).
+- Current version: `0.1.57` (local feed: `artifacts/packages`).
 - Working demo: [`demo/Demo`](demo/Demo) (`Calculator.cs` + `Calculator.Test.cs`).
 
 ## Onboarding (3 steps)
@@ -14,7 +14,7 @@ An MSBuild SDK, distributed as a NuGet package, that brings Go's test model to
 **1. Add the SDK** after your existing .NET SDK:
 
 ```xml
-<Project Sdk="Microsoft.NET.Sdk;Stf.GoTest/0.1.56">
+<Project Sdk="Microsoft.NET.Sdk;Stf.GoTest/0.1.57">
 ```
 
 For a web project, keep `Microsoft.NET.Sdk.Web` as the first SDK. Keep the
@@ -115,6 +115,13 @@ for the prerequisites that a normal .NET SDK project requires.
 assembly, and `dotnet run` executes the production application. The
 `StfAllowTestSlicePublish=true` and `StfAllowTestSlicePack=true` opt-ins retain
 the ability to publish and package tests.
+
+These options also work in a project `PropertyGroup`: `StfTest=true`,
+`StfAllowTestSlicePack=true`, `StfAllowTestSlicePublish=true`, and
+`StfAllowPack=false`. Body-level test selection initializes `STF_TEST` and
+the test runtime configuration before compilation. A command-line
+`-p:StfTest=false` still forces production, including when the project
+contains a test shipping opt-in.
 
 When upgrading, update the test dependency condition to the full snippet above:
 older snippets only exclude dependencies for `false`, not `0/no/n/off`.

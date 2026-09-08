@@ -38,6 +38,22 @@
     <StfAllowBareTestRefsIsTrue></StfAllowBareTestRefsIsTrue>
     <StfAllowBareTestRefsIsTrue Condition="'$(StfAllowBareTestRefs)' == 'true' OR '$(StfAllowBareTestRefs)' == '1' OR '$(StfAllowBareTestRefs)' == 'yes' OR '$(StfAllowBareTestRefs)' == 'y' OR '$(StfAllowBareTestRefs)' == 'on'">true</StfAllowBareTestRefsIsTrue>
   </PropertyGroup>
+  <!-- Project-body shipping options are available only now. Reconcile the
+       SDK's early production default before the item evaluation pass collects
+       conditional PackageReferences. An explicit command-line StfTest remains
+       authoritative: the SDK never marks it as a default. -->
+  <PropertyGroup Condition="'$(StfSdkMode)' == 'true' AND '$(_StfSdkDefaultedToProd)' == 'true' AND '$(StfTest)' == 'false' AND ('$(StfAllowTestSlicePackIsTrue)' == 'true' OR ('$(_IsPublishing)' == 'true' AND '$(StfAllowTestSlicePublishIsTrue)' == 'true') OR ('$(_IsPacking)' == 'true' AND '$(StfAllowPackIsFalse)' == 'true'))">
+    <StfTest>true</StfTest>
+    <StfTestIsTrue>true</StfTestIsTrue>
+  </PropertyGroup>
+  <!-- Heal the opposite transition too: body-time test opt-ins did not run
+       the test initialization in props. Keep explicitly supplied constants. -->
+  <PropertyGroup Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfTestDefineApplied)' != 'true'">
+    <DefineConstants>$(DefineConstants);STF_TEST</DefineConstants>
+    <StfTestDefineApplied>true</StfTestDefineApplied>
+    <IsTestProject Condition="'$(IsTestProject)' == ''">true</IsTestProject>
+    <GenerateRuntimeConfigurationFiles Condition="'$(GenerateRuntimeConfigurationFiles)' == ''">true</GenerateRuntimeConfigurationFiles>
+  </PropertyGroup>
   <!--
     A Go-style project is always packable: pack ships the prod slice (tests are
     stripped by the Compile Remove group below). Microsoft.NET.Test.Sdk flips

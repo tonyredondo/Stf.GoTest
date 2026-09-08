@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk;Stf.GoTest/0.1.56">
+<Project Sdk="Microsoft.NET.Sdk;Stf.GoTest/0.1.57">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
