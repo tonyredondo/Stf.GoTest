@@ -19,7 +19,9 @@ class PackageTests(unittest.TestCase):
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory(prefix="stf-regression-")
         cls.addClassCleanup(cls.temp.cleanup)
-        cls.root = Path(cls.temp.name)
+        # Match dotnet's physical working directory (macOS /var aliases
+        # /private/var); mixed spellings break SDK artifact glob exclusions.
+        cls.root = Path(cls.temp.name).resolve()
         cls.env = dict(os.environ, NUGET_PACKAGES=str(cls.root / "cache"),
                        DOTNET_CLI_TELEMETRY_OPTOUT="1", DOTNET_NOLOGO="1")
         cls.version = ET.parse(ROOT / "src/Stf.GoTest/Stf.GoTest.csproj").findtext(".//Version")
