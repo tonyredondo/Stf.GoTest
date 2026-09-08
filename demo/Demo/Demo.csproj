@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- No manual test wiring. Stf.GoTest arrives via NuGet and configures everything. -->
+  </PropertyGroup>
+  <!-- Stf.GoTest stays UNCONDITIONAL: it owns the StfTest=true default.
+       Everything below keys off that default. -->
+  <ItemGroup>
+    <PackageReference Include="Stf.GoTest" Version="0.1.53" PrivateAssets="all" />
+  </ItemGroup>
+  <!-- Test-only dependencies, the one copy-paste snippet onboarding needs.
+       The Condition (not the package) hides them from prod restore: graph
+       restore cannot see package-provided MSBuild, so this must live in the
+       consumer evaluation. PrivateAssets is load-bearing: StfDeployPrivateTestDeps
+       selects exactly the Private=false resolved references to copy next to the
+       test slice (default copy is suppressed by it). GeneratePathProperty on
+       the Test SDK ref is load-bearing too: StfFailExeTestMode keys the
+       exe-guard off $(PkgMicrosoft_NET_Test_Sdk), which NuGet only defines
+       with this opt-in (inert otherwise). -->
+  <ItemGroup Condition="'$(StfTest)' != 'false'">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" PrivateAssets="all" GeneratePathProperty="true" />
+    <PackageReference Include="xunit" Version="2.4.2" PrivateAssets="all" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

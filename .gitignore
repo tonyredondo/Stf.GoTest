@@ -1,0 +1,6 @@
+[Bb]in/
+[Oo]bj/
+.DS_Store
+*.nupkg
+!artifacts/packages/Stf.GoTest.0.1.53.nupkg
+artifacts/nuget-cache/

@@ -1,0 +1,47 @@
+<Project>
+  <!--
+    Stf.GoTest: Go-style single-project tests for .NET.
+    Auto-imported by NuGet via buildTransitive. Consumers only add:
+      <PackageReference Include="Stf.GoTest" Version="0.1.x" PrivateAssets="all" />
+    No manual <Compile Remove> or InternalsVisibleTo needed.
+  -->
+  <PropertyGroup>
+    <!-- Default true: the IDE evaluates WITHOUT custom -p flags, so the default
+         must include tests or IntelliSense / Test Explorer break.
+         Prod/CI builds opt out explicitly: dotnet build -p:StfTest=false.
+         Exe projects are the exception (see StfFailExeTestMode in .targets):
+         test mode cannot compile there upstream, so they set
+         <StfTest>false</StfTest> once in the project body. -->
+    <StfTest Condition="'$(StfTest)' == ''">true</StfTest>
+    <!-- MSBuild has no bool type: every flag is text. Accept the usual
+         boolean-ish spellings (== is already case-insensitive) and normalize
+         to true/false, so -p: and env vars can use 1/0/yes/no/on/off.
+         Unknown values keep fail-open test behavior (see .targets). -->
+    <StfTest Condition="'$(StfTest)' == '1' OR '$(StfTest)' == 'yes' OR '$(StfTest)' == 'y' OR '$(StfTest)' == 'on'">true</StfTest>
+    <StfTest Condition="'$(StfTest)' == '0' OR '$(StfTest)' == 'no' OR '$(StfTest)' == 'n' OR '$(StfTest)' == 'off'">false</StfTest>
+    <StfSeparateOutputs Condition="'$(StfSeparateOutputs)' == ''">true</StfSeparateOutputs>
+    <IsTestProject Condition="'$(StfTest)' == 'true' AND '$(IsTestProject)' == ''">true</IsTestProject>
+    <!-- The SDK defaults this from IsTestProject during its own props, before a
+         package can set IsTestProject. Set the derived value directly or the
+         test slice gets no runtimeconfig.json and testhost cannot resolve the
+         (transitive, non-copied) test dependencies at runtime. -->
+    <GenerateRuntimeConfigurationFiles Condition="'$(StfTest)' == 'true' AND '$(GenerateRuntimeConfigurationFiles)' == ''">true</GenerateRuntimeConfigurationFiles>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(StfTest)' == 'true'">
+    <!-- #DEFINE for the IDE: #if STF_TEST shows test-only code as active and
+         grays the prod branch. Go build-constraint equivalent for C#. -->
+    <DefineConstants>$(DefineConstants);STF_TEST</DefineConstants>
+    <!-- Applied-flag for the body-time healing in .targets (a body-time
+         <StfTest>false</StfTest> arrives after this append). -->
+    <StfTestDefineApplied>true</StfTestDefineApplied>
+  </PropertyGroup>
+
+  <!-- Separate prod/test deliverables (final output only; intermediates are
+       separated in the .targets). Restore stays shared. -->
+  <PropertyGroup Condition="'$(StfTest)' == 'true' AND '$(StfSeparateOutputs)' == 'true'">
+    <BaseOutputPath>bin/test/</BaseOutputPath>
+    <!-- Applied-flag: see above. -->
+    <StfTestBaseOutputApplied>true</StfTestBaseOutputApplied>
+  </PropertyGroup>
+</Project>
