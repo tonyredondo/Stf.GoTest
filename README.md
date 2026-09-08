@@ -6,7 +6,7 @@ An MSBuild SDK, distributed as a NuGet package, that brings Go's test model to
 .NET: code and its tests live in the **same project** — no second test project, no `InternalsVisibleTo`.
 `*.Test.cs` files compile into the test slice and are excluded from prod.
 
-- Current version: `0.1.57` (local feed: `artifacts/packages`).
+- Current version: `0.1.58` (local feed: `artifacts/packages`).
 - Working demo: [`demo/Demo`](demo/Demo) (`Calculator.cs` + `Calculator.Test.cs`).
 
 ## Onboarding (3 steps)
@@ -14,7 +14,7 @@ An MSBuild SDK, distributed as a NuGet package, that brings Go's test model to
 **1. Add the SDK** after your existing .NET SDK:
 
 ```xml
-<Project Sdk="Microsoft.NET.Sdk;Stf.GoTest/0.1.57">
+<Project Sdk="Microsoft.NET.Sdk;Stf.GoTest/0.1.58">
 ```
 
 For a web project, keep `Microsoft.NET.Sdk.Web` as the first SDK. Keep the
@@ -72,13 +72,15 @@ No `StfTest` property is needed for the default command behavior.
 | `run` (exe) | **runs the prod app** | runs the app |
 | `run` (lib) | only executable projects are supported | same |
 
-The `StfAllowTestSlicePublish=true` and `StfAllowTestSlicePack=true` escape hatches
-ship the test slice. Test packing includes its DLL, symbols and generated XML
-documentation, including multi-framework and `--no-build` packages.
+`StfTest` selects the slice. `StfAllowTestSlicePack=true` and
+`StfAllowTestSlicePublish=true` permit shipping an explicitly selected test
+slice; neither permission changes the mode. Test packing includes its DLL,
+symbols and generated XML documentation, including multi-framework and
+`--no-build` packages.
 `StfDualBuild=false` disables the dual build
 (and the nested prod clean: prod outputs survive `dotnet clean`).
-`StfAllowExeTestMode=true` silences the exe guard. `StfAllowPack=false` leaves
-`pack` fully alone (no prod redirect: pack behaves like a plain test project).
+`StfAllowExeTestMode=true` silences the exe guard. `StfAllowPack=false`
+disables SDK packaging without changing the mode or disabling dual builds.
 `StfAllowBareTestRefs=true` silences the unconditioned-ref warning (also
 covers `xunit.v3`). In the IDE, `#if STF_TEST` marks test-only code.
 
@@ -87,8 +89,8 @@ covers `xunit.v3`). In the IDE, `#if STF_TEST` marks test-only code.
 
 ## Production publishing and validation
 
-`dotnet publish` and `dotnet pack` evaluate production from the start, as if
-`-p:StfTest=false` had been supplied. They do not build or publish the test
+By default, `dotnet publish` and `dotnet pack` evaluate production from the
+start, as if `-p:StfTest=false` had been supplied. They do not build or publish the test
 assembly. Existing `-o`, `PublishDir`, `PackageOutputPath`, configuration,
 package version and other command-line properties are preserved.
 
@@ -112,16 +114,55 @@ builds running on worker nodes. Prepare matching production assets first with
 for the prerequisites that a normal .NET SDK project requires.
 
 `dotnet build` still produces both assemblies; `dotnet test` executes the test
-assembly, and `dotnet run` executes the production application. The
-`StfAllowTestSlicePublish=true` and `StfAllowTestSlicePack=true` opt-ins retain
-the ability to publish and package tests.
+assembly, and `dotnet run` executes the production application. These commands
+and the SDK onboarding above are unchanged.
 
-These options also work in a project `PropertyGroup`: `StfTest=true`,
-`StfAllowTestSlicePack=true`, `StfAllowTestSlicePublish=true`, and
-`StfAllowPack=false`. Body-level test selection initializes `STF_TEST` and
-the test runtime configuration before compilation. A command-line
-`-p:StfTest=false` still forces production, including when the project
-contains a test shipping opt-in.
+### Explicitly shipping tests
+
+Select tests with `StfTest=true` and grant permission for the requested command:
+
+```bash
+dotnet pack -p:StfTest=true -p:StfAllowTestSlicePack=true
+dotnet publish -p:StfTest=true -p:StfAllowTestSlicePublish=true
+```
+
+A permission flag alone leaves `pack` and `publish` in production mode. An
+explicit `StfTest=false`, in the project or on the command line, also keeps
+production even when permissions are enabled. Selecting tests without the
+matching permission fails with `STF0010` (pack) or `STF0011` (publish), including
+with `--no-build`. Pack permission does not grant publish permission.
+
+These properties also work in the `.csproj`. Assign `StfTest` **before** any
+property groups or imports that depend on its value. For example, to select
+tests specifically for `dotnet pack`, place this after the project's basic
+properties and before its test-dependent configuration:
+
+```xml
+<PropertyGroup Condition="'$(_IsPacking)' == 'true'">
+  <StfTest>true</StfTest>
+  <StfAllowTestSlicePack>true</StfAllowTestSlicePack>
+</PropertyGroup>
+<PropertyGroup Condition="'$(StfTest)' == 'true'">
+  <DefineConstants>$(DefineConstants);MY_TEST_CONFIGURATION</DefineConstants>
+</PropertyGroup>
+```
+
+For publish, use `$(_IsPublishing)` and `StfAllowTestSlicePublish` instead.
+An unconditional `<StfTest>true</StfTest>` selects tests for both shipping
+commands, so grant both permissions if both commands should succeed.
+Command-line `-p:StfTest=false` overrides the project assignment. The SDK adds
+`STF_TEST` and the test runtime configuration before compilation; it does not
+reevaluate properties or imports that precede your `StfTest` assignment.
+
+Repeat the selection and permission when using `--no-restore` or `--no-build`.
+For example, restore test assets with `dotnet restore -p:StfTest=true` before
+`dotnet pack --no-restore -p:StfTest=true -p:StfAllowTestSlicePack=true`.
+`--no-build` additionally requires the matching test build and configuration.
+
+**Migration from 0.1.57:** shipping permissions no longer select tests
+implicitly. Add `StfTest=true` to commands or project configuration that
+intentionally ship tests. Conversely, existing explicit test shipping now
+requires the matching permission. Production defaults need no changes.
 
 When upgrading, update the test dependency condition to the full snippet above:
 older snippets only exclude dependencies for `false`, not `0/no/n/off`.

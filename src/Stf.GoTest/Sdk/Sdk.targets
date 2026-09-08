@@ -1,4 +1,21 @@
-<Project>
+<Project InitialTargets="StfValidateShippingMode">
   <Import Project="../build/Stf.GoTest.targets" />
   <Import Project="Stf.Test.targets" Condition="'$(StfTestIsTrue)' == 'true'" />
+
+  <!-- Validate dotnet's command intent before restore/build, including
+       NoBuild. Direct MSBuild target calls also use the guards below. -->
+  <Target Name="StfValidateShippingMode" Condition="'$(StfTestIsTrue)' == 'true'">
+    <CallTarget Targets="StfValidateTestPackPermission" Condition="'$(_IsPacking)' == 'true'" />
+    <CallTarget Targets="StfValidateTestPublishPermission" Condition="'$(_IsPublishing)' == 'true'" />
+  </Target>
+  <Target Name="StfValidateTestPackPermission" BeforeTargets="Pack;GenerateNuspec"
+          Condition="'$(StfTestIsTrue)' == 'true' AND '$(IsPackable)' != 'false'">
+    <Error Code="STF0010" Condition="'$(StfAllowTestSlicePackIsTrue)' != 'true'"
+           Text="Packing tests requires StfAllowTestSlicePack=true. Use StfTest=false to pack production." />
+  </Target>
+  <Target Name="StfValidateTestPublishPermission" BeforeTargets="Publish;ComputeFilesToPublish"
+          Condition="'$(StfTestIsTrue)' == 'true' AND '$(IsPublishable)' != 'false'">
+    <Error Code="STF0011" Condition="'$(StfAllowTestSlicePublishIsTrue)' != 'true'"
+           Text="Publishing tests requires StfAllowTestSlicePublish=true. Use StfTest=false to publish production." />
+  </Target>
 </Project>

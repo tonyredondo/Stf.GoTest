@@ -288,29 +288,36 @@ class PackageTests(unittest.TestCase):
 
     def test_sdk_test_shipping_opt_in_alias(self):
         folder = self.project()
-        self.dotnet(folder, "publish", "-p:StfAllowTestSlicePublish=yes", "-o", str(folder / "published"))
+        self.dotnet(folder, "publish", "-p:StfTest=true", "-p:StfAllowTestSlicePublish=yes", "-o", str(folder / "published"))
         self.assertEqual((folder / "published/Case.dll").read_bytes(),
                          (folder / "bin/test/Release/net8.0/Case.dll").read_bytes())
 
     def test_sdk_pack_test_opt_in(self):
         folder = self.project()
-        self.dotnet(folder, "pack", "-p:StfAllowTestSlicePack=on", "-o", str(folder / "packages"))
+        self.dotnet(folder, "pack", "-p:StfTest=true", "-p:StfAllowTestSlicePack=on", "-o", str(folder / "packages"))
         with zipfile.ZipFile(folder / "packages/Case.1.0.0.nupkg") as package:
             self.assertEqual(package.read("lib/net8.0/Case.dll"),
                              (folder / "bin/test/Release/net8.0/Case.dll").read_bytes())
 
-    def test_body_shipping_options_select_tests(self):
-        for option, command in (("StfAllowTestSlicePack", "pack"),
-                                ("StfAllowTestSlicePublish", "publish"),
-                                ("StfTest", "pack"), ("StfTest", "publish")):
-            with self.subTest(option=option, command=command):
-                folder = self.project(f"<{option}>true</{option}>",
-                                      name=self._testMethodName + option + command)
+    def test_body_explicit_test_shipping(self):
+        for command, option in (("pack", "StfAllowTestSlicePack"),
+                                ("publish", "StfAllowTestSlicePublish")):
+            with self.subTest(command=command):
+                folder = self.project(f"<StfTest>true</StfTest><{option}>true</{option}>",
+                                      name=self._testMethodName + command)
                 (folder / "Calc.Test.cs").write_text(
                     '#if !STF_TEST\n#error Test mode requires STF_TEST\n#endif\n'
                     'public class Tests { [Xunit.Fact] public void Works() {} }')
+                self.add_targets(folder, '''<Target Name="BeforeShipping" BeforeTargets="Pack;Publish">
+                  <Error Condition="!Exists('$(TargetPath)')" Text="Missing compiled test assembly" />
+                  <WriteLinesToFile File="hooks.txt" Lines="before:$(StfTest)" Overwrite="false" />
+                </Target><Target Name="AfterShipping" AfterTargets="Pack;Publish">
+                  <WriteLinesToFile File="hooks.txt" Lines="after:$(StfTest)" Overwrite="false" />
+                </Target>''')
                 output = folder / "shipped"
                 self.dotnet(folder, command, "-o", str(output))
+                self.assertEqual((folder / "hooks.txt").read_text().splitlines(),
+                                 ["before:true", "after:true"])
                 test_binary = (folder / "bin/test/Release/net8.0/Case.dll").read_bytes()
                 if command == "pack":
                     with zipfile.ZipFile(output / "Case.1.0.0.nupkg") as package:
@@ -318,6 +325,84 @@ class PackageTests(unittest.TestCase):
                 else:
                     self.assertEqual((output / "Case.dll").read_bytes(), test_binary)
                 self.assertIn("Passed!", self.dotnet(folder, "test", "-c", "Release", "--no-build"))
+
+    def test_shipping_permission_alone_keeps_production(self):
+        for command, option in (("pack", "StfAllowTestSlicePack"),
+                                ("publish", "StfAllowTestSlicePublish")):
+            for location in ("body", "global"):
+                with self.subTest(command=command, location=location):
+                    folder = self.project(f"<{option}>on</{option}>" if location == "body" else "",
+                                          name=self._testMethodName + command + location)
+                    (folder / "Broken.Test.cs").write_text("#error Permission must not select tests\n")
+                    args = [f"-p:{option}=on"] if location == "global" else []
+                    self.dotnet(folder, command, *args)
+                    self.assertFalse((folder / "bin/test").exists())
+                    if command == "publish":
+                        self.assert_prod(folder / "bin/Release/net8.0/publish")
+                    else:
+                        with zipfile.ZipFile(folder / "bin/Release/Case.1.0.0.nupkg") as package:
+                            self.assertEqual(package.read("lib/net8.0/Case.dll"),
+                                             (folder / "bin/Release/net8.0/Case.dll").read_bytes())
+
+    def test_test_shipping_requires_matching_permission(self):
+        for command, other in (("pack", "StfAllowTestSlicePublish"),
+                               ("publish", "StfAllowTestSlicePack")):
+            with self.subTest(command=command):
+                folder = self.project(f"<StfTest>true</StfTest><{other}>true</{other}>",
+                                      name=self._testMethodName + command)
+                output = folder / "shipped"
+                log = self.dotnet(folder, command, "-o", str(output), success=False)
+                self.assertIn("STF0010" if command == "pack" else "STF0011", log)
+                self.assertFalse(list(output.glob("*")))
+                # NoBuild must enforce permission too, without compiling anything.
+                (folder / "Broken.Test.cs").write_text("#error NoBuild must not compile\n")
+                log = self.dotnet(folder, command, "--no-build", "-o", str(output), success=False)
+                self.assertIn("STF0010" if command == "pack" else "STF0011", log)
+                self.assertNotIn("NoBuild must not compile", log)
+                self.assertFalse(list(output.glob("*")))
+
+    def test_explicit_body_production_overrides_shipping_opt_in(self):
+        for command, option in (("pack", "StfAllowTestSlicePack"),
+                                ("publish", "StfAllowTestSlicePublish")):
+            with self.subTest(command=command):
+                folder = self.project(f"<StfTest>false</StfTest><{option}>true</{option}>",
+                                      name=self._testMethodName + command)
+                (folder / "Broken.Test.cs").write_text("#error Explicit production must exclude tests\n")
+                output = folder / "shipped"
+                self.dotnet(folder, command, "-o", str(output))
+                self.assertFalse((folder / "bin/test").exists())
+                if command == "pack":
+                    with zipfile.ZipFile(output / "Case.1.0.0.nupkg") as package:
+                        self.assertEqual(package.read("lib/net8.0/Case.dll"),
+                                         (folder / "bin/Release/net8.0/Case.dll").read_bytes())
+                else:
+                    self.assert_prod(output)
+
+    def test_explicit_test_selection_applies_conditional_properties(self):
+        for command, option in (("pack", "StfAllowTestSlicePack"),
+                                ("publish", "StfAllowTestSlicePublish")):
+            with self.subTest(command=command):
+                folder = self.project(name=self._testMethodName + command)
+                intent = "_IsPacking" if command == "pack" else "_IsPublishing"
+                project = folder / "Case.csproj"
+                project.write_text(project.read_text().replace("</PropertyGroup>", f'''</PropertyGroup>
+                  <PropertyGroup Condition="'$({intent})' == 'true'">
+                    <StfTest>true</StfTest><{option}>true</{option}>
+                  </PropertyGroup>
+                  <Import Project="test-config.props" Condition="'$(StfTest)' == 'true'" />
+                  <PropertyGroup Condition="'$(StfTest)' == 'true'">
+                    <DefineConstants>$(DefineConstants);$(TestConfiguration)</DefineConstants>
+                  </PropertyGroup>''', 1))
+                (folder / "test-config.props").write_text(
+                    '<Project><PropertyGroup><TestConfiguration>TEST_CONFIGURATION</TestConfiguration>'
+                    '</PropertyGroup></Project>')
+                (folder / "Calc.Test.cs").write_text(
+                    '#if !TEST_CONFIGURATION\n#error Test configuration must be evaluated\n#endif\n'
+                    'public class Tests { [Xunit.Fact] public void Works() {} }')
+                self.dotnet(folder, command)
+                # The README example changes only the requested shipping command.
+                self.dotnet(folder, "publish" if command == "pack" else "pack")
+                self.assert_prod(folder / "bin/Release/net8.0")
 
     def test_body_no_pack_preserves_test_project(self):
         folder = self.project("<StfAllowPack>false</StfAllowPack>")
@@ -328,7 +413,7 @@ class PackageTests(unittest.TestCase):
         self.assertIn("Passed!", self.dotnet(folder, "test", "--no-build"))
 
     def test_body_shipping_aliases_and_global_override(self):
-        folder = self.project("<StfAllowTestSlicePack>on</StfAllowTestSlicePack>"
+        folder = self.project("<StfTest>true</StfTest><StfAllowTestSlicePack>on</StfAllowTestSlicePack>"
                               "<StfAllowTestSlicePublish>yes</StfAllowTestSlicePublish>")
         self.add_targets(folder, '''<Target Name="ObserveMode" BeforeTargets="BeforeBuild">
           <WriteLinesToFile File="modes.txt" Lines="$(StfTest)" Overwrite="false" />
@@ -342,7 +427,7 @@ class PackageTests(unittest.TestCase):
             (folder / "modes.txt").unlink()
 
     def test_body_shipping_no_restore_keeps_test_assets(self):
-        folder = self.project("<StfAllowTestSlicePack>true</StfAllowTestSlicePack>"
+        folder = self.project("<StfTest>true</StfTest><StfAllowTestSlicePack>true</StfAllowTestSlicePack>"
                               "<StfAllowTestSlicePublish>true</StfAllowTestSlicePublish>"
                               "<StfDualBuild>false</StfDualBuild>")
         self.add_targets(folder, '''<Target Name="ObserveRestore" BeforeTargets="Restore">
@@ -367,7 +452,7 @@ class PackageTests(unittest.TestCase):
         (folder / "Calc.Test.cs").write_text(
             '/// <summary>Test-only documentation.</summary>\n'
             'public class Tests { [Xunit.Fact] public void Works() => Xunit.Assert.Equal(3, Calc.Add(1, 2)); }')
-        self.dotnet(folder, "pack", "-p:StfAllowTestSlicePack=true", "-o", str(folder / "packages"))
+        self.dotnet(folder, "pack", "-p:StfTest=true", "-p:StfAllowTestSlicePack=true", "-o", str(folder / "packages"))
         expected = {}
         for framework in ("net8.0", "net9.0"):
             for extension in ("dll", "pdb", "xml"):
@@ -376,7 +461,7 @@ class PackageTests(unittest.TestCase):
             self.assertIn(b"Test-only documentation", expected[framework, "xml"])
         # A second pack must use the existing artifacts, without compiling.
         (folder / "Broken.Test.cs").write_text("#error NoBuild must not compile\n")
-        self.dotnet(folder, "pack", "--no-build", "-p:StfAllowTestSlicePack=true",
+        self.dotnet(folder, "pack", "--no-build", "-p:StfTest=true", "-p:StfAllowTestSlicePack=true",
                     "-o", str(folder / "no-build-packages"))
         for output in ("packages", "no-build-packages"):
             with zipfile.ZipFile(folder / output / "Case.1.0.0.nupkg") as package, \
@@ -458,7 +543,7 @@ class PackageTests(unittest.TestCase):
     def test_publish_test_opt_in(self):
         folder = self.project()
         output = folder / "intentional tests"
-        self.dotnet(folder, "publish", "-p:StfAllowTestSlicePublish=true", "-o", str(output))
+        self.dotnet(folder, "publish", "-p:StfTest=true", "-p:StfAllowTestSlicePublish=true", "-o", str(output))
         self.assertEqual((output / "Case.dll").read_bytes(),
                          (folder / "bin/test/Release/net8.0/Case.dll").read_bytes())
 
