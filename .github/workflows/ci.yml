@@ -199,6 +199,7 @@ jobs:
           EOF
           cd "$S/aotdemo"
           dotnet publish -p:PublishAot=true -r linux-x64
-          test -x publish/aotdemo
-          test "$(./publish/aotdemo)" = "3"
-          if ls publish/*.dll >/dev/null 2>&1; then echo 'managed dlls in native publish'; exit 1; fi
+          P=bin/Release/net8.0/linux-x64/publish
+          test -x "$P/aotdemo"
+          test "$(./$P/aotdemo)" = "3"
+          if ls "$P"/*.dll >/dev/null 2>&1; then echo 'managed dlls in native publish'; exit 1; fi
