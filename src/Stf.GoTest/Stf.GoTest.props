@@ -37,10 +37,12 @@
     <StfTestDefineApplied>true</StfTestDefineApplied>
   </PropertyGroup>
 
-  <!-- Separate prod/test deliverables (final output only; intermediates are
-       separated in the .targets). Restore stays shared. -->
+  <!-- Separation INTENT only (no paths touched here): at props time
+       BaseOutputPath is still empty (verified via -pp: SDK defaults and the
+       project body assign it later), so deriving the test root here reads
+       garbage. Paths separate in the .targets, where the base is final.
+       Restore stays shared. -->
   <PropertyGroup Condition="'$(StfTest)' == 'true' AND '$(StfSeparateOutputs)' == 'true'">
-    <BaseOutputPath>bin/test/</BaseOutputPath>
     <!-- Applied-flag: see above. -->
     <StfTestBaseOutputApplied>true</StfTestBaseOutputApplied>
   </PropertyGroup>

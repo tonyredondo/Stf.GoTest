@@ -54,6 +54,22 @@ jobs:
           dotnet test demo/Demo/Demo.csproj 2>&1 | tee /tmp/stf-demo-test.log
           grep -q 'Passed!' /tmp/stf-demo-test.log
 
+      - name: Separator keeps prod slice clean, VSTest resolves test slice (F1)
+        run: |
+          test ! -e demo/Demo/test
+          dotnet test demo/Demo/Demo.csproj --no-build 2>&1 | tee /tmp/stf-demo-nobuild.log
+          grep -q 'Passed!' /tmp/stf-demo-nobuild.log
+
+      - name: Shared outputs skip nested prod, tests run (F2)
+        run: |
+          cd "$S/libprog"
+          rm -rf bin obj
+          dotnet build libprog.csproj -p:StfSeparateOutputs=false
+          test ! -d bin/test
+          test -f bin/Debug/net8.0/libprog.dll
+          dotnet test libprog.csproj -p:StfSeparateOutputs=false --no-build 2>&1 | tee /tmp/stf-shared-test.log
+          grep -q 'Passed!' /tmp/stf-shared-test.log
+
       - name: Demo pack ships prod only
         run: |
           dotnet pack demo/Demo/Demo.csproj 2>&1 | tee /tmp/stf-demo-pack.log

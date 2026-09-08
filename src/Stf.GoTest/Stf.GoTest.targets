@@ -24,37 +24,65 @@
        for body-false libraries — one extra runtimeconfig.json, zero risk (exe
        needs it true anyway). IsTestProject self-heals via the group below;
        intermediates separate here at targets time, already final. -->
-  <PropertyGroup Condition="'$(StfTest)' != 'true' AND '$(StfTestBaseOutputApplied)' == 'true'">
-    <BaseOutputPath>$(BaseOutputPath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</BaseOutputPath>
-    <OutputPath>$(OutputPath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</OutputPath>
-    <!-- SDK derivations freeze EARLY from the poisoned roots (SDK evaluation,
-         before this file imports), so healing the roots is not enough: every
-         property derived from them keeps bin/test/... in the real build eval
-         (verified: OutDir drove compile output there; TargetDir froze it into
-         ProjectDepsFilePath and broke GenerateDepsFile). The closure below is
-         every such property found in the SDK evaluation (mechanical rule: any
-         value derived from a healed root before this import). Replace is a
-         no-op for unset or marker-free values, so execution-derived,
-         body-customized, and artifacts-output paths pass through untouched;
-         read-only sentinel properties (*WasSpecified, *WasMissing) are
-         deliberately excluded. -->
-    <OutDir>$(OutDir.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</OutDir>
-    <TargetDir>$(TargetDir.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</TargetDir>
-    <TargetPath>$(TargetPath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</TargetPath>
-    <FinalOutputPath>$(FinalOutputPath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</FinalOutputPath>
-    <PackageOutputPath>$(PackageOutputPath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</PackageOutputPath>
-    <PublishDir>$(PublishDir.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</PublishDir>
-    <_NormalizedPublishDir>$(_NormalizedPublishDir.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</_NormalizedPublishDir>
-    <ProjectDepsFilePath>$(ProjectDepsFilePath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</ProjectDepsFilePath>
-    <ProjectRuntimeConfigFilePath>$(ProjectRuntimeConfigFilePath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</ProjectRuntimeConfigFilePath>
-    <ProjectRuntimeConfigDevFilePath>$(ProjectRuntimeConfigDevFilePath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</ProjectRuntimeConfigDevFilePath>
-    <PublishedSingleFilePath>$(PublishedSingleFilePath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</PublishedSingleFilePath>
-    <ClickOncePublishDir>$(ClickOncePublishDir.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</ClickOncePublishDir>
-    <_WindowsMetadataOutputPath>$(_WindowsMetadataOutputPath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</_WindowsMetadataOutputPath>
-    <_WinMDDebugSymbolsOutputPath>$(_WinMDDebugSymbolsOutputPath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</_WinMDDebugSymbolsOutputPath>
-    <_WinMDDocFileOutputPath>$(_WinMDDocFileOutputPath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</_WinMDDocFileOutputPath>
-    <AppConfigFileDestination>$(AppConfigFileDestination.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</AppConfigFileDestination>
-  </PropertyGroup>
+  <!-- Test-root separation runs at BUILD time (BeforeTargets=PrepareForBuild),
+       never at evaluation: the SDK derives outputs in several passes with
+       mixed separator conventions per property (verified: one eval where a
+       literal Replace matched TargetDir but missed OutputPath/OutDir, plus a
+       restore-path overwrite with absolute paths), so evaluation-time string
+       surgery is fragile by construction. Here every value is final: each
+       path is absolutized, checked for containment under the recorded base,
+       and re-rooted under base/test/. Body-time StfTest=false needs no
+       healing: this never runs for it, so prod evaluations are never
+       poisoned (the exewithline CI case proves it). VSTest is hooked too so
+       no-build runs resolve the same slice. StfSeparated keeps the target
+       idempotent within one execution (a second run would nest test/test/).
+       Skipped paths (outside the base, e.g. the obj/ pack/publish redirects)
+       keep working untouched, exactly like a plain project. Design-time IDE
+       builds may not run this hook; compilation is unaffected either way. -->
+  <Target Name="StfSeparateTestOutputs"
+          BeforeTargets="PrepareForBuild;VSTest"
+          Condition="'$(StfTest)' == 'true' AND '$(StfTestBaseOutputApplied)' == 'true' AND '$(StfSeparated)' == '' AND '$(BaseOutputPath)' != ''">
+    <PropertyGroup>
+      <StfTestBaseAbs>$([MSBuild]::NormalizeDirectory($([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(BaseOutputPath)))))</StfTestBaseAbs>
+      <StfTestRootAbs>$(StfTestBaseAbs)test/</StfTestRootAbs>
+      <StfSeparated>true</StfSeparated>
+      <BaseOutputPath>$(StfTestRootAbs)</BaseOutputPath>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(OutputPath)))</_StfA>
+      <OutputPath Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</OutputPath>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(OutDir)))</_StfA>
+      <OutDir Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</OutDir>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(TargetDir)))</_StfA>
+      <TargetDir Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</TargetDir>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(TargetPath)))</_StfA>
+      <TargetPath Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</TargetPath>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(FinalOutputPath)))</_StfA>
+      <FinalOutputPath Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</FinalOutputPath>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(PackageOutputPath)))</_StfA>
+      <PackageOutputPath Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</PackageOutputPath>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(PublishDir)))</_StfA>
+      <PublishDir Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</PublishDir>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(_NormalizedPublishDir)))</_StfA>
+      <_NormalizedPublishDir Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</_NormalizedPublishDir>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(ProjectDepsFilePath)))</_StfA>
+      <ProjectDepsFilePath Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</ProjectDepsFilePath>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(ProjectRuntimeConfigFilePath)))</_StfA>
+      <ProjectRuntimeConfigFilePath Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</ProjectRuntimeConfigFilePath>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(ProjectRuntimeConfigDevFilePath)))</_StfA>
+      <ProjectRuntimeConfigDevFilePath Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</ProjectRuntimeConfigDevFilePath>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(PublishedSingleFilePath)))</_StfA>
+      <PublishedSingleFilePath Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</PublishedSingleFilePath>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(ClickOncePublishDir)))</_StfA>
+      <ClickOncePublishDir Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</ClickOncePublishDir>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(_WindowsMetadataOutputPath)))</_StfA>
+      <_WindowsMetadataOutputPath Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</_WindowsMetadataOutputPath>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(_WinMDDebugSymbolsOutputPath)))</_StfA>
+      <_WinMDDebugSymbolsOutputPath Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</_WinMDDebugSymbolsOutputPath>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(_WinMDDocFileOutputPath)))</_StfA>
+      <_WinMDDocFileOutputPath Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</_WinMDDocFileOutputPath>
+      <_StfA>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(AppConfigFileDestination)))</_StfA>
+      <AppConfigFileDestination Condition="$([System.String]::Copy(&quot;$(_StfA)&quot;).StartsWith(&quot;$(StfTestBaseAbs)&quot;))">$(StfTestRootAbs)$([System.String]::Copy(&quot;$(_StfA)&quot;).Substring($(StfTestBaseAbs.Length)))</AppConfigFileDestination>
+    </PropertyGroup>
+  </Target>
   <PropertyGroup Condition="'$(StfTest)' != 'true' AND '$(StfTestDefineApplied)' == 'true'">
     <DefineConstants>$(DefineConstants.Replace(';STF_TEST', ''))</DefineConstants>
   </PropertyGroup>
@@ -83,10 +111,11 @@
        (even with StartupObject the tests could never run: the forced entry
        point would be the user's Main, not testhost).
        SCOPE (honest heuristic): a real entry point is undecidable at
-       evaluation time, and effective OutputType=Exe does NOT prove one: the
-       SDK defaults unset OutputType to Exe, so every zero-config LIBRARY
-       (demo included) is "Exe" here and must keep working — gating on
-       OutputType alone blocks the core scenario (verified by breaking Demo).
+       evaluation time, and effective OutputType=Exe does NOT prove one:
+       unset OutputType evaluates to Library here (the Test SDK flips it to
+       Exe later), yet every zero-config LIBRARY still looks "Exe" to a naive
+       gate at some point — gating on OutputType alone blocks the core
+       scenario (verified by breaking Demo).
        So the guard fires only when an entry point is PROVABLE BY CONVENTION:
        WinExe (never defaulted, ~always has a Main) or a Program.cs in
        @(Compile) (== is case-insensitive; Program.Test.cs never matches;
@@ -326,9 +355,14 @@
     <StfFirstTfm Condition="'$(TargetFrameworks)' == ''">$(TargetFramework)</StfFirstTfm>
     <StfFirstTfm Condition="'$(TargetFrameworks)' != ''">$([System.String]::Copy('$(TargetFrameworks)').Split(';')[0])</StfFirstTfm>
   </PropertyGroup>
+  <!-- StfSeparateOutputs=false opts the dual OUT: both slices share one
+       output dir, so a nested prod build would clobber the test closure
+       before VSTest runs (verified: testhost dies on missing test deps).
+       Single dir means the default commands leave the TEST slice behind;
+       prod arrives via an explicit -p:StfTest=false build. -->
   <Target Name="StfBuildProdSliceToo"
           AfterTargets="Build"
-          Condition="'$(StfTest)' == 'true' AND '$(StfDualBuild)' != 'false' AND '$(StfNested)' == '' AND '$(TargetFramework)' == '$(StfFirstTfm)'">
+          Condition="'$(StfTest)' == 'true' AND '$(StfDualBuild)' != 'false' AND '$(StfSeparateOutputs)' != 'false' AND '$(StfNested)' == '' AND '$(TargetFramework)' == '$(StfFirstTfm)'">
     <MSBuild Projects="$(MSBuildProjectFullPath)"
              Targets="Restore"
              Properties="StfTest=false;StfNested=true"
@@ -410,11 +444,14 @@
        the dispatcher evaluation skips package imports, and the CLI never
        reaches the wired inners when conditioned test refs are present
        (verified by bisection: Stf-ref-only packs, +xunit group goes silent).
-       Workaround: explicit prod pack (verified pure, all TFMs). Single-TFM
-       auto-redirect is unaffected. -->
+       Narrowing with -p:TargetFramework= fails loud with upstream NU5026
+       (verified identical on a stock project: 'dotnet pack' has no -f and
+       the SDK cannot narrow pack to one TFM). Workaround: explicit full
+       prod pack 'dotnet pack -p:StfTest=false' (verified pure, all TFMs).
+       Single-TFM auto-redirect is unaffected. -->
   <Target Name="StfPackProdSliceInstead"
           BeforeTargets="GenerateNuspec"
-          Condition="'$(StfTest)' == 'true' AND '$(StfAllowTestSlicePack)' != 'true' AND '$(TargetFramework)' == '$(StfFirstTfm)'">
+          Condition="'$(StfTest)' == 'true' AND '$(StfAllowTestSlicePack)' != 'true' AND '$(StfAllowPack)' != 'false' AND '$(TargetFramework)' == '$(StfFirstTfm)'">
     <Message Importance="high" Text="Stf.GoTest: 'dotnet pack' ships the PROD slice; the test slice never ships." />
     <Warning Condition="'$(PackageOutputPath)' != '$(StfTestPackDir)'"
              Text="Stf.GoTest: explicit output path with test-mode pack: the outer TEST nupkg will also land in '$(PackageOutputPath)'. Ship prod instead: dotnet pack -p:StfTest=false -o '$(PackageOutputPath)'." />

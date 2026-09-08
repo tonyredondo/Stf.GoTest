@@ -130,3 +130,11 @@ without a `Program.cs`, never notice.
 - AOT verified via explicit prod only
   (`StfTest=false dotnet publish -p:PublishAot=true -r <rid>` → native
   binary); trim forwards to the prod slice (warns IL1034 upstream on libraries).
+- AOT publish of an exe in default test mode fails with a bare CS0017: the
+  entry-point drop does not apply inside the publish evaluation (mechanism
+  still open — every guard condition reads true there). Use the explicit prod
+  slice above for NativeAOT.
+- `StfSeparateOutputs=false` shares one output dir for both slices and skips
+  the nested prod build (it would clobber the test closure); prod arrives via
+  an explicit `-p:StfTest=false` build. Like `-c`, repeat the flag on every
+  command (`build` and `test`), it is per-invocation.
