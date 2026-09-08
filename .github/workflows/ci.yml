@@ -252,6 +252,20 @@ jobs:
           test ! -f bin/Debug/net8.0/exenoline.dll
           test -f "bin/Debug/net8.0/$RID/exenoline.dll"
 
+      - name: Build forwards the RID to the nested prod build
+        run: |
+          case "$RUNNER_OS" in
+            Linux) RID=linux-x64 ;;
+            Windows) RID=win-x64 ;;
+            macOS) RID=osx-arm64 ;;
+          esac
+          cd "$S/exenoline"
+          rm -rf bin obj
+          dotnet build exenoline.csproj -r "$RID"
+          test -f "bin/test/Debug/net8.0/$RID/exenoline.dll"
+          test -f "bin/Debug/net8.0/$RID/exenoline.dll"
+          test ! -f bin/Debug/net8.0/exenoline.dll
+
       - name: Bare xunit.v3 warns about the missing condition (R3)
         run: |
           B="$RUNNER_TEMP/stfci-barev3"

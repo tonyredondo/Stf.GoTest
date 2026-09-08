@@ -67,7 +67,8 @@ directly: same assembly, no hacks.
 | `run` (lib) | the CLI declines (`OutputType Library`) | same |
 
 Escape hatches: `StfAllowTestSlicePack` / `StfAllowTestSlicePublish` = `true`
-ship the test slice as-is. `StfDualBuild=false` disables the dual build.
+ship the test slice as-is. `StfDualBuild=false` disables the dual build
+(and the nested prod clean: prod outputs survive `dotnet clean`).
 `StfAllowExeTestMode=true` silences the exe guard. `StfAllowPack=false` leaves
 `pack` fully alone (no prod redirect: pack behaves like a plain test project).
 `StfAllowBareTestRefs=true` silences the unconditioned-ref warning (also
