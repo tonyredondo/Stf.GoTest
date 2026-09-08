@@ -266,6 +266,23 @@ jobs:
           test -f "bin/Debug/net8.0/$RID/exenoline.dll"
           test ! -f bin/Debug/net8.0/exenoline.dll
 
+      - name: Spaced configuration builds both slices (G-A)
+        run: |
+          cd "$S/libprog"
+          rm -rf bin obj
+          dotnet build libprog.csproj -c "With Space"
+          test -f "bin/With Space/net8.0/libprog.dll"
+          test -f "bin/test/With Space/net8.0/libprog.dll"
+
+      - name: Platform travels to the nested prod build (G-B)
+        run: |
+          cd "$S/libprog"
+          rm -rf bin obj
+          dotnet build libprog.csproj -p:Platform=x64
+          test -f bin/test/x64/Debug/net8.0/libprog.dll
+          test -f bin/x64/Debug/net8.0/libprog.dll
+          test ! -f bin/Debug/net8.0/libprog.dll
+
       - name: Bare xunit.v3 warns about the missing condition (R3)
         run: |
           B="$RUNNER_TEMP/stfci-barev3"

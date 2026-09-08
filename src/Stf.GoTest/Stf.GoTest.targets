@@ -251,9 +251,9 @@
           AfterTargets="ComputeRunArguments"
           Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfAllowExeTestModeIsTrue)' != 'true' AND '$(UseAppHost)' == 'true'">
     <Message Importance="high" Text="Stf.GoTest: 'dotnet run' executes the PROD slice; 'dotnet test' runs the tests." />
-    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Build -p:StfTest=false -p:StfNested=true -p:Configuration=$(Configuration) -p:TargetFramework=$(TargetFramework) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
+    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Build -p:StfTest=false -p:StfNested=true -p:Configuration="$(Configuration)" -p:Platform=$(Platform) -p:TargetFramework=$(TargetFramework) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
           WorkingDirectory="$(MSBuildProjectDirectory)" />
-    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -getProperty:TargetDir -p:StfTest=false -p:StfNested=true -p:Configuration=$(Configuration) -p:TargetFramework=$(TargetFramework) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -nologo'
+    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -getProperty:TargetDir -p:StfTest=false -p:StfNested=true -p:Configuration="$(Configuration)" -p:Platform=$(Platform) -p:TargetFramework=$(TargetFramework) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -nologo'
           WorkingDirectory="$(MSBuildProjectDirectory)"
           ConsoleToMSBuild="true">
       <Output TaskParameter="ConsoleOutput" PropertyName="StfProdTargetDir" />
@@ -415,8 +415,11 @@
          build next to the RID test slice. Artifacts-output flags travel too:
          without them a nested prod build lands in project-local bin/ while
          the outer slice lives under ArtifactsPath (verified split-brain).
-         Empty forwards equal unset; ArtifactsPath is quoted (spaces). -->
-    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Build -p:StfTest=false -p:StfNested=true -p:Configuration=$(Configuration) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
+         Configuration is quoted (spaced '-c' names split the nested command
+         otherwise: MSB1008) and Platform travels (without it a '-p:Platform'
+         build nests a default-dir prod slice). Empty forwards equal unset;
+         ArtifactsPath is quoted (spaces); the rest are spaceless tokens. -->
+    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Build -p:StfTest=false -p:StfNested=true -p:Configuration="$(Configuration)" -p:Platform=$(Platform) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
           WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
 
@@ -430,7 +433,7 @@
   <Target Name="StfCleanProdSliceToo"
           AfterTargets="Clean"
           Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfDualBuildIsFalse)' != 'true' AND '$(StfSeparateOutputsIsFalse)' != 'true' AND '$(StfNested)' == '' AND '$(TargetFramework)' == '$(StfFirstTfm)'">
-    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Clean -p:StfTest=false -p:StfNested=true -p:Configuration=$(Configuration) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
+    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Clean -p:StfTest=false -p:StfNested=true -p:Configuration="$(Configuration)" -p:Platform=$(Platform) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
           WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
 
@@ -525,7 +528,7 @@
     <Message Importance="high" Text="Stf.GoTest: 'dotnet pack' ships the PROD slice; the test slice never ships." />
     <Warning Condition="'$(PackageOutputPath)' != '$(StfTestPackDir)'"
              Text="Stf.GoTest: explicit output path with test-mode pack: the outer TEST nupkg will also land in '$(PackageOutputPath)'. Ship prod instead: dotnet pack -p:StfTest=false -o '$(PackageOutputPath)'." />
-    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Pack -p:StfTest=false -p:StfNested=true -p:Configuration=$(Configuration) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
+    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Pack -p:StfTest=false -p:StfNested=true -p:Configuration="$(Configuration)" -p:Platform=$(Platform) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
           WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
   <Target Name="StfCleanSuppressedPack"
@@ -566,7 +569,7 @@
     <Message Importance="high" Text="Stf.GoTest: 'dotnet publish' ships the PROD slice; the test slice never ships." />
     <Warning Condition="'$(PublishDir)' != '$(StfTestPublishDir)'"
              Text="Stf.GoTest: explicit output path with test-mode publish: the outer TEST publish will also land in '$(PublishDir)'. Ship prod instead: dotnet publish -p:StfTest=false -o '$(PublishDir)'." />
-    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Publish -p:StfTest=false -p:StfNested=true -p:Configuration=$(Configuration) -p:TargetFramework=$(TargetFramework) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:PublishSingleFile=$(PublishSingleFile) -p:PublishTrimmed=$(PublishTrimmed) -p:PublishAot=$(PublishAot) -p:PublishReadyToRun=$(PublishReadyToRun) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
+    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Publish -p:StfTest=false -p:StfNested=true -p:Configuration="$(Configuration)" -p:Platform=$(Platform) -p:TargetFramework=$(TargetFramework) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:PublishSingleFile=$(PublishSingleFile) -p:PublishTrimmed=$(PublishTrimmed) -p:PublishAot=$(PublishAot) -p:PublishReadyToRun=$(PublishReadyToRun) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
           WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
   <Target Name="StfCleanSuppressedPublish"
