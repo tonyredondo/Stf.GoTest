@@ -160,6 +160,46 @@ jobs:
           if dotnet build oldsnip.csproj > /tmp/stf-oldsnip.log 2>&1; then echo 'UNEXPECTED PASS'; exit 1; fi
           grep -qE 'CS0017|CS0246' /tmp/stf-oldsnip.log
 
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack the release nupkg
+        run: |
+          rm -rf /tmp/stf-pkga /tmp/stf-pkgb
+          dotnet pack src/Stf.GoTest/Stf.GoTest.csproj -c Release -o /tmp/stf-pkga -nologo
+          V=$(dotnet msbuild src/Stf.GoTest/Stf.GoTest.csproj -getProperty:Version | tr -d ' \r\n')
+          echo "STF_VERSION=$V" >> "$GITHUB_ENV"
+
+      # Determinism gate: the same checkout packed twice from clean must ship
+      # byte-identical content (nuspec + build wiring). A full-zip compare is
+      # impossible by design: NuGet mints a random core-properties part id
+      # (psmdcp GUID) on every pack (verified by member diff). Different
+      # commits also differ in the embedded <repository commit> — that is
+      # provenance, not drift.
+      - name: Gate content determinism across clean rebuilds
+        run: |
+          rm -rf src/Stf.GoTest/bin src/Stf.GoTest/obj
+          dotnet pack src/Stf.GoTest/Stf.GoTest.csproj -c Release -o /tmp/stf-pkgb -nologo
+          for d in /tmp/stf-cmpa /tmp/stf-cmpb; do rm -rf "$d"; mkdir -p "$d"; done
+          unzip -oq "/tmp/stf-pkga/Stf.GoTest.$STF_VERSION.nupkg" '*.nuspec' 'build/*' 'buildTransitive/*' -d /tmp/stf-cmpa
+          unzip -oq "/tmp/stf-pkgb/Stf.GoTest.$STF_VERSION.nupkg" '*.nuspec' 'build/*' 'buildTransitive/*' -d /tmp/stf-cmpb
+          diff -r /tmp/stf-cmpa /tmp/stf-cmpb || { echo 'NON-DETERMINISTIC PACKAGE CONTENT'; exit 1; }
+          echo 'DETERMINISTIC-CONTENT-OK'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Stf.GoTest-${{ env.STF_VERSION }}
+          path: /tmp/stf-pkga/Stf.GoTest-${{ env.STF_VERSION }}.nupkg
+
   aot:
     runs-on: ubuntu-latest
     timeout-minutes: 30
