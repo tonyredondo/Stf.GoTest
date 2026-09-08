@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <PackageId>Stf.GoTest</PackageId>
-    <Version>0.1.53</Version>
+    <Version>0.1.56</Version>
     <Description>Go-style single-project tests: *.Test.cs compiles into the test build, excluded from prod. No InternalsVisibleTo.</Description>
     <NoWarn>$(NoWarn);NU5128</NoWarn>
     <IncludeBuildOutput>false</IncludeBuildOutput>
@@ -17,12 +17,12 @@
        transitively. Consumers add their framework (xunit/NUnit/MSTest) with a
        normal direct PackageReference; this package contributes MSBuild wiring. -->
 
-  <!-- Same files under build/ (legacy) and buildTransitive/ (transitive). NuGet
-       prefers buildTransitive when both exist, so no double import. -->
+  <!-- Outer multi-framework builds also need command dispatch before NuGet
+       decides whether a test project is packable. -->
   <ItemGroup>
-    <Content Include="Stf.GoTest.props" PackagePath="build/Stf.GoTest.props" Pack="true" />
-    <Content Include="Stf.GoTest.targets" PackagePath="build/Stf.GoTest.targets" Pack="true" />
-    <Content Include="Stf.GoTest.props" PackagePath="buildTransitive/Stf.GoTest.props" Pack="true" />
-    <Content Include="Stf.GoTest.targets" PackagePath="buildTransitive/Stf.GoTest.targets" Pack="true" />
+    <Compile Remove="StfRunProd.cs" />
+    <Content Include="StfRunProd.cs;Stf.GoTest.props;Stf.GoTest.targets;Stf.GoTest.Pack.targets;Stf.GoTest.Publish.targets"
+             PackagePath="build/;buildTransitive/;buildMultiTargeting/" Pack="true" />
+    <Content Include="Sdk/*.props;Sdk/*.targets" PackagePath="Sdk/" Pack="true" />
   </ItemGroup>
 </Project>

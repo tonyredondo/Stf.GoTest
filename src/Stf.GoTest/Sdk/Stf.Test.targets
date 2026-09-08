@@ -1,0 +1,10 @@
+<Project>
+  <!-- An automatic package belongs to the production build. Do not invoke the
+       outer Pack target: that would also invoke the consumer's shipping hooks.
+       The production evaluation retains GeneratePackageOnBuild and lets NuGet
+       perform the pack, including its hooks, exactly once. -->
+  <Target Name="_PackAsBuildAfterTarget" AfterTargets="Build"
+          Condition="'$(GeneratePackageOnBuild)' == 'true' AND '$(IsInnerBuild)' != 'true' AND '$(StfAllowPackIsFalse)' != 'true'">
+    <StfRunProd Project="$(MSBuildProjectFullPath)" Target="Build" AllFrameworks="true" Restore="true" />
+  </Target>
+</Project>

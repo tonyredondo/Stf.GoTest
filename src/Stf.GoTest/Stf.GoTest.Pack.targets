@@ -1,0 +1,8 @@
+<Project>
+  <Import Project="$(StfOriginalPackTargets)" />
+  <!-- Keep NuGet's supporting targets, but let only production execute Pack. -->
+  <Target Name="Pack" Condition="'$(IsPackable)' != 'false'">
+    <Message Importance="high" Text="Stf.GoTest: 'dotnet pack' ships the PROD slice." />
+    <StfRunProd Project="$(MSBuildProjectFullPath)" Target="Pack" AllFrameworks="true" Restore="true" />
+  </Target>
+</Project>

@@ -42,6 +42,9 @@ jobs:
           test -n "$STF_VERSION" || { echo 'could not read Version from csproj'; exit 1; }
           echo "STF_VERSION=$STF_VERSION" >> "$GITHUB_ENV"
 
+      - name: Package regression tests
+        run: python tests/regression.py
+
       - name: Demo dual build
         run: |
           rm -rf demo/Demo/bin demo/Demo/obj
@@ -88,7 +91,7 @@ jobs:
       - name: Demo pack ships prod only
         run: |
           dotnet pack demo/Demo/Demo.csproj 2>&1 | tee /tmp/stf-demo-pack.log
-          grep -q 'ships the PROD slice' /tmp/stf-demo-pack.log
+          unzip -p demo/Demo/bin/Release/Demo.1.0.0.nupkg lib/net8.0/Demo.dll | cmp - demo/Demo/bin/Release/net8.0/Demo.dll
           test -f demo/Demo/bin/Release/Demo.1.0.0.nupkg
 
       - name: Demo publish ships prod only
@@ -114,7 +117,7 @@ jobs:
             <ItemGroup>
               <PackageReference Include="Stf.GoTest" Version="__VERSION__" PrivateAssets="all" />
             </ItemGroup>
-            <ItemGroup Condition="'$(StfTest)' != 'false'">
+            <ItemGroup Condition="'$(StfTest)' != 'false' AND '$(StfTest)' != '0' AND '$(StfTest)' != 'no' AND '$(StfTest)' != 'n' AND '$(StfTest)' != 'off'">
               <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" PrivateAssets="all"__GPP__ />
               <PackageReference Include="xunit" Version="2.4.2" PrivateAssets="all" />
               <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3" PrivateAssets="all" />
@@ -377,7 +380,7 @@ jobs:
             <ItemGroup>
               <PackageReference Include="Stf.GoTest" Version="$V" PrivateAssets="all" />
             </ItemGroup>
-            <ItemGroup Condition="'\$(StfTest)' != 'false'">
+            <ItemGroup Condition="'\$(StfTest)' != 'false' AND '\$(StfTest)' != '0' AND '\$(StfTest)' != 'no' AND '\$(StfTest)' != 'n' AND '\$(StfTest)' != 'off'">
               <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" PrivateAssets="all" GeneratePathProperty="true" />
               <PackageReference Include="xunit" Version="2.4.2" PrivateAssets="all" />
               <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3" PrivateAssets="all" />
@@ -426,7 +429,7 @@ jobs:
             <ItemGroup>
               <PackageReference Include="Stf.GoTest" Version="$V" PrivateAssets="all" />
             </ItemGroup>
-            <ItemGroup Condition="'\$(StfTest)' != 'false'">
+            <ItemGroup Condition="'\$(StfTest)' != 'false' AND '\$(StfTest)' != '0' AND '\$(StfTest)' != 'no' AND '\$(StfTest)' != 'n' AND '\$(StfTest)' != 'off'">
               <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" PrivateAssets="all" GeneratePathProperty="true" />
               <PackageReference Include="xunit" Version="2.4.2" PrivateAssets="all" />
               <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3" PrivateAssets="all" />
@@ -488,8 +491,8 @@ jobs:
           NUPKG_B=$(echo /tmp/stf-pkgb/*.nupkg)
           test -f "$NUPKG_B" || { echo 'second pack produced no nupkg'; exit 1; }
           for d in /tmp/stf-cmpa /tmp/stf-cmpb; do rm -rf "$d"; mkdir -p "$d"; done
-          unzip -oq "$STF_PKG_PATH" '*.nuspec' 'build/*' 'buildTransitive/*' -d /tmp/stf-cmpa
-          unzip -oq "$NUPKG_B" '*.nuspec' 'build/*' 'buildTransitive/*' -d /tmp/stf-cmpb
+          unzip -oq "$STF_PKG_PATH" '*.nuspec' 'build/*' 'buildTransitive/*' 'buildMultiTargeting/*' 'Sdk/*' -d /tmp/stf-cmpa
+          unzip -oq "$NUPKG_B" '*.nuspec' 'build/*' 'buildTransitive/*' 'buildMultiTargeting/*' 'Sdk/*' -d /tmp/stf-cmpb
           test -n "$(ls -A /tmp/stf-cmpa)" || { echo 'empty extraction A: gate would pass vacuously'; exit 1; }
           test -n "$(ls -A /tmp/stf-cmpb)" || { echo 'empty extraction B: gate would pass vacuously'; exit 1; }
           find /tmp/stf-cmpa -type f | sort
@@ -520,7 +523,7 @@ jobs:
       - name: Pack Stf.GoTest into the local feed
         run: dotnet pack src/Stf.GoTest/Stf.GoTest.csproj -o artifacts/packages
 
-      - name: NativeAOT publish of explicit prod slice
+      - name: NativeAOT publish defaults to prod
         run: |
           S="$RUNNER_TEMP/stfaot"
           rm -rf "$S" && mkdir -p "$S/aotdemo"
@@ -528,21 +531,25 @@ jobs:
           V=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' src/Stf.GoTest/Stf.GoTest.csproj)
           test -n "$V" || { echo 'could not read Version from csproj'; exit 1; }
           cat > "$S/aotdemo/aotdemo.csproj" <<EOF
-          <Project Sdk="Microsoft.NET.Sdk">
+          <Project Sdk="Microsoft.NET.Sdk;Stf.GoTest/$V">
             <PropertyGroup>
               <OutputType>Exe</OutputType>
-              <StfTest>false</StfTest>
               <TargetFramework>net8.0</TargetFramework>
               <Nullable>enable</Nullable>
               <ImplicitUsings>enable</ImplicitUsings>
             </PropertyGroup>
-            <ItemGroup>
-              <PackageReference Include="Stf.GoTest" Version="$V" PrivateAssets="all" />
+            <ItemGroup Condition="'\$(StfTest)' != 'false' AND '\$(StfTest)' != '0' AND '\$(StfTest)' != 'no' AND '\$(StfTest)' != 'n' AND '\$(StfTest)' != 'off'">
+              <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" PrivateAssets="all" GeneratePathProperty="true" />
+              <PackageReference Include="xunit" Version="2.4.2" PrivateAssets="all" />
+              <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3" PrivateAssets="all" />
             </ItemGroup>
           </Project>
           EOF
           cat > "$S/aotdemo/Program.cs" <<'EOF'
           public static class Program { public static void Main() { System.Console.WriteLine(1 + 2); } }
+          EOF
+          cat > "$S/aotdemo/ProductionOnly.Test.cs" <<'EOF'
+          #error Production publish must not compile test files
           EOF
           cd "$S/aotdemo"
           dotnet publish -p:PublishAot=true -r linux-x64

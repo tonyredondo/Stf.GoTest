@@ -1,0 +1,10 @@
+<Project>
+  <!-- Imported after Microsoft.NET.Publish.targets. No outer test build or
+       publish dependencies run, including when PublishDir is a global. -->
+  <!-- SDK BeforeTargets hooks (including NativeAOT toolchain setup) require
+       resolved framework packs, but do not need an outer compilation. -->
+  <Target Name="Publish" DependsOnTargets="ResolveFrameworkReferences" Condition="'$(IsPublishable)' != 'false'">
+    <Message Importance="high" Text="Stf.GoTest: 'dotnet publish' ships the PROD slice." />
+    <StfRunProd Project="$(MSBuildProjectFullPath)" Target="Publish" Restore="true" />
+  </Target>
+</Project>

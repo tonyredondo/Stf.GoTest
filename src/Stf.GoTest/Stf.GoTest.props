@@ -9,9 +9,9 @@
     <!-- Default true: the IDE evaluates WITHOUT custom -p flags, so the default
          must include tests or IntelliSense / Test Explorer break.
          Prod/CI builds opt out explicitly: dotnet build -p:StfTest=false.
-         Exe projects are the exception (see StfFailExeTestMode in .targets):
-         test mode cannot compile there upstream, so they set
-         <StfTest>false</StfTest> once in the project body. -->
+         Exe projects use a thin Program.cs so test mode can remove the
+         application entry point. A body-time StfTest=false is an explicit
+         prod-only opt-out, not required for the default command behavior. -->
     <StfTest Condition="'$(StfTest)' == ''">true</StfTest>
     <!-- MSBuild has no bool type: every flag is text, and -p:/env values
          are GLOBAL (immutable: no assignment below can rewrite them). So

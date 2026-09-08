@@ -1,4 +1,11 @@
-<Project>
+<Project TreatAsLocalProperty="AfterMicrosoftNETSdkTargets;NuGetBuildTasksPackTargets">
+  <!-- Compose SDK extension imports even when supplied with -p:. Preserve the
+       original global values when forwarding to the production evaluation. -->
+  <UsingTask TaskName="StfRunProd" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <Task>
+      <Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)StfRunProd.cs" />
+    </Task>
+  </UsingTask>
   <!-- Canonical flag readings. -p:/env values are GLOBAL (immutable), so a
        flag is never rewritten — conditions read a twin instead. Twins
        redefine here (twins are never global) because the body runs after
@@ -74,7 +81,7 @@
        the test slice cleans and the nested target below takes prod. -->
   <Target Name="StfSeparateTestOutputs"
           BeforeTargets="PrepareForBuild;VSTest;BeforeClean"
-          Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfSeparateTestOutputsApplied)' == 'true' AND '$(StfSeparated)' == '' AND '$(BaseOutputPath)' != ''">
+          Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfSeparateOutputsIsTrue)' == 'true' AND '$(StfSeparated)' == '' AND '$(BaseOutputPath)' != ''">
     <PropertyGroup>
       <StfTestBaseAbs>$([MSBuild]::NormalizeDirectory($([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(BaseOutputPath)))))</StfTestBaseAbs>
       <StfTestRootAbs>$(StfTestBaseAbs)test/</StfTestRootAbs>
@@ -251,13 +258,10 @@
           AfterTargets="ComputeRunArguments"
           Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfAllowExeTestModeIsTrue)' != 'true' AND '$(UseAppHost)' == 'true'">
     <Message Importance="high" Text="Stf.GoTest: 'dotnet run' executes the PROD slice; 'dotnet test' runs the tests." />
-    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Build -p:StfTest=false -p:StfNested=true -p:Configuration="$(Configuration)" -p:Platform=$(Platform) -p:TargetFramework=$(TargetFramework) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
-          WorkingDirectory="$(MSBuildProjectDirectory)" />
-    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -getProperty:TargetDir -p:StfTest=false -p:StfNested=true -p:Configuration="$(Configuration)" -p:Platform=$(Platform) -p:TargetFramework=$(TargetFramework) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -nologo'
-          WorkingDirectory="$(MSBuildProjectDirectory)"
-          ConsoleToMSBuild="true">
-      <Output TaskParameter="ConsoleOutput" PropertyName="StfProdTargetDir" />
-    </Exec>
+    <StfRunProd Project="$(MSBuildProjectFullPath)" Target="Build" Restore="true" />
+    <StfRunProd Project="$(MSBuildProjectFullPath)" Target="Build" GetProperty="TargetDir">
+      <Output TaskParameter="PropertyValue" PropertyName="StfProdTargetDir" />
+    </StfRunProd>
     <PropertyGroup>
       <RunCommand>$(StfProdTargetDir)$(AssemblyName)$(_NativeExecutableExtension)</RunCommand>
     </PropertyGroup>
@@ -279,7 +283,7 @@
           BeforeTargets="BeforeBuild"
           Condition="'$(StfTestIsTrue)' != 'true' AND '$(StfAllowBareTestRefsIsTrue)' != 'true'">
     <Warning Condition="'%(PackageReference.Identity)' == 'Microsoft.NET.Test.Sdk' OR '%(PackageReference.Identity)' == 'xunit' OR '%(PackageReference.Identity)' == 'xunit.v3' OR '%(PackageReference.Identity)' == 'xunit.runner.visualstudio' OR '%(PackageReference.Identity)' == 'NUnit' OR '%(PackageReference.Identity)' == 'NUnit3TestAdapter' OR '%(PackageReference.Identity)' == 'NUnitLite' OR '%(PackageReference.Identity)' == 'MSTest.TestFramework' OR '%(PackageReference.Identity)' == 'MSTest.TestAdapter' OR '%(PackageReference.Identity)' == 'coverlet.collector' OR '%(PackageReference.Identity)' == 'coverlet.msbuild'"
-             Text="Stf.GoTest: test-framework PackageReference '%(PackageReference.Identity)' is missing the StfTest condition: prod restore includes test packages. Wrap test-only refs in an ItemGroup with Condition=&quot;'%24(StfTest)' != 'false'&quot; (see demo/Demo.csproj). Silence with -p:StfAllowBareTestRefs=true." />
+             Text="Stf.GoTest: test-framework PackageReference '%(PackageReference.Identity)' is missing the StfTest condition: prod restore includes test packages. Use the full StfTest condition from README.md (including false/0/no/n/off) on test-only refs. Silence with -p:StfAllowBareTestRefs=true." />
   </Target>
 
   <!-- WHY THE CONSUMER DECLARES ITS OWN CONDITIONED REFS (no auto-injection):
@@ -314,14 +318,38 @@
        base mid-path would get test/ injected there. Non-prefixed values no-op
        cleanly and the marker guard below remains the staleness backstop. -->
   <PropertyGroup Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfSeparateOutputsIsTrue)' == 'true' AND '$(BaseIntermediateOutputPath)' != '' AND $([System.String]::Copy(&quot;$(IntermediateOutputPath)&quot;).StartsWith(&quot;$(BaseIntermediateOutputPath)&quot;))">
+    <_StfOriginalDocumentationFile Condition="'$(DocumentationFile)' == '$(IntermediateOutputPath)$(AssemblyName).xml'">$(DocumentationFile)</_StfOriginalDocumentationFile>
     <StfTestIntermediateRoot>$(BaseIntermediateOutputPath)test/</StfTestIntermediateRoot>
     <IntermediateOutputPath>$(IntermediateOutputPath.Replace($(BaseIntermediateOutputPath), $(StfTestIntermediateRoot)))</IntermediateOutputPath>
+    <DocumentationFile Condition="'$(_StfOriginalDocumentationFile)' != ''">$(IntermediateOutputPath)$(AssemblyName).xml</DocumentationFile>
     <!-- TargetRefPath freezes from the default IntermediateOutputPath before this
          file imports (same for IntermediateRefAssembly in SDKs where it doesn't
          follow). Re-derive with the separated paths, mirroring the SDK logic. -->
     <TargetRefPath Condition="'$(ProduceReferenceAssemblyInOutDir)' == 'true'">$([MSBuild]::NormalizePath($(TargetDir), 'ref', $(TargetFileName)))</TargetRefPath>
     <TargetRefPath Condition="'$(ProduceReferenceAssemblyInOutDir)' != 'true'">$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(IntermediateOutputPath), 'ref', $(TargetFileName)))</TargetRefPath>
   </PropertyGroup>
+
+  <!-- NuGet snapshots output-group returns before AfterTargets executes.
+       Correct the collected items just before PackTask consumes them. Their
+       intermediate identities identify the test artifacts; FinalOutputPath
+       can still contain the production path frozen during SDK evaluation.
+       Limit this to our separated intermediates so custom pack items retain
+       their producer's source metadata. This also works without a build and
+       in the outer evaluation of a multi-framework pack. -->
+  <Target Name="StfSelectTestPackSources" BeforeTargets="GenerateNuspec"
+          Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfSeparateOutputsIsTrue)' == 'true' AND '$(BaseIntermediateOutputPath)' != ''">
+    <PropertyGroup>
+      <_StfPackIntermediateRoot>$([MSBuild]::NormalizeDirectory($(MSBuildProjectDirectory), $(BaseIntermediateOutputPath), 'test'))</_StfPackIntermediateRoot>
+    </PropertyGroup>
+    <ItemGroup>
+      <_BuildOutputInPackage Condition="$([System.String]::Copy('%(_BuildOutputInPackage.FullPath)').StartsWith('$(_StfPackIntermediateRoot)'))">
+        <FinalOutputPath>%(_BuildOutputInPackage.FullPath)</FinalOutputPath>
+      </_BuildOutputInPackage>
+      <_TargetPathsToSymbols Condition="$([System.String]::Copy('%(_TargetPathsToSymbols.FullPath)').StartsWith('$(_StfPackIntermediateRoot)'))">
+        <FinalOutputPath>%(_TargetPathsToSymbols.FullPath)</FinalOutputPath>
+      </_TargetPathsToSymbols>
+    </ItemGroup>
+  </Target>
 
   <!-- Test-only runtime deployment. Consumers mark test-framework refs
        PrivateAssets=all (keeps the prod nuspec clean), which also suppresses
@@ -372,8 +400,7 @@
        nested build, so both assemblies exist after one command. The nested
        build restores first: sharing the test closure's assets would make prod
        RAR copy test deps next to the prod dll (the dll itself stays pure, but
-       bin/ must not). Restore and Build run in SEPARATE evaluations (in-proc
-       MSBuild task, then a fresh dotnet msbuild process): a single
+       bin/ must not). Restore and Build run in SEPARATE dotnet msbuild processes: a single
        Restore;Build invocation evaluates once, so its Build would keep the
        pre-restore imports (Test SDK targets) and copy test files next to the
        prod dll. dotnet build itself splits restore/build passes for the same
@@ -403,24 +430,9 @@
        prod arrives via an explicit -p:StfTest=false build. -->
   <Target Name="StfBuildProdSliceToo"
           AfterTargets="Build"
-          Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfDualBuildIsFalse)' != 'true' AND '$(StfSeparateOutputsIsFalse)' != 'true' AND '$(StfNested)' == '' AND '$(TargetFramework)' == '$(StfFirstTfm)'">
-    <MSBuild Projects="$(MSBuildProjectFullPath)"
-             Targets="Restore"
-             Properties="StfTest=false;StfNested=true"
-             RemoveProperties="TargetFramework"
-             StopOnFirstFailure="true" />
-    <!-- RuntimeIdentifier/SelfContained forward (TargetFramework deliberately
-         NOT: the nested build covers every TFM, narrowing would break the
-         dual). Without the RID forward, 'build -r' nests a portable prod
-         build next to the RID test slice. Artifacts-output flags travel too:
-         without them a nested prod build lands in project-local bin/ while
-         the outer slice lives under ArtifactsPath (verified split-brain).
-         Configuration is quoted (spaced '-c' names split the nested command
-         otherwise: MSB1008) and Platform travels (without it a '-p:Platform'
-         build nests a default-dir prod slice). Empty forwards equal unset;
-         ArtifactsPath is quoted (spaces); the rest are spaceless tokens. -->
-    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Build -p:StfTest=false -p:StfNested=true -p:Configuration="$(Configuration)" -p:Platform=$(Platform) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
-          WorkingDirectory="$(MSBuildProjectDirectory)" />
+          Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfDualBuildIsFalse)' != 'true' AND '$(StfSeparateOutputsIsFalse)' != 'true' AND '$(StfNested)' == '' AND '$(TargetFramework)' == '$(StfFirstTfm)' AND ('$(StfSdkMode)' != 'true' OR '$(GeneratePackageOnBuild)' != 'true' OR '$(StfAllowPackIsFalse)' == 'true')">
+    <!-- Restore and Build use separate processes with the same global properties. -->
+    <StfRunProd Project="$(MSBuildProjectFullPath)" Target="Build" AllFrameworks="true" Restore="true" />
   </Target>
 
   <!-- Clean mirrors the dual: a default clean wipes the test slice (via the
@@ -433,13 +445,12 @@
   <Target Name="StfCleanProdSliceToo"
           AfterTargets="Clean"
           Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfDualBuildIsFalse)' != 'true' AND '$(StfSeparateOutputsIsFalse)' != 'true' AND '$(StfNested)' == '' AND '$(TargetFramework)' == '$(StfFirstTfm)'">
-    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Clean -p:StfTest=false -p:StfNested=true -p:Configuration="$(Configuration)" -p:Platform=$(Platform) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
-          WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <StfRunProd Project="$(MSBuildProjectFullPath)" Target="Clean" AllFrameworks="true" Restore="false" />
   </Target>
 
   <!-- Every real build states which slice it produced. AfterTargets=Build runs
        for build/test/pack-inner-builds but not for IDE design-time builds. -->
-  <Target Name="StfReportSlice" AfterTargets="Build">
+  <Target Name="StfReportSlice" AfterTargets="Build" Condition="'$(IsCrossTargetingBuild)' != 'true'">
     <Message Importance="high" Condition="'$(StfTestIsTrue)' == 'true'"
              Text="Stf.GoTest: TEST slice built: $(TargetPath) (prod: dotnet build -p:StfTest=false)" />
     <Message Importance="high" Condition="'$(StfTestIsTrue)' != 'true'"
@@ -484,98 +495,16 @@
     <WriteLinesToFile File="$(StfModeFile)" Lines="$(StfTest)" Overwrite="true" />
   </Target>
 
-  <!-- Pack auto-redirect. Plain 'dotnet pack' (test mode) ships the PROD slice
-       instead of failing: it delegates to a prod Pack in a fresh process (same
-       two-evaluation split as the dual build above; a single Restore;Pack
-       invocation would pack from the stale evaluation). The nested pack
-       forwards Configuration (a fresh process does not inherit MSBuild
-       globals; without this, 'pack -c Release' would nest a Debug pack).
-       Exotic -p: flags are NOT forwarded: pass them with an explicit
-       'dotnet pack -p:StfTest=false ...'. StfAllowTestSlicePack=true keeps the
-       old behavior (pack the test slice as-is). Publish redirects the same
-       way below (prod by default, StfAllowTestSlicePublish opt-in).
-       Suppressing the outer test nupkg CANNOT be done from this hook: observed
-       twice that in-target property sets (IsPackable flip, PackageOutputPath
-       redirect) are ignored by the later GenerateNuspec — target conditions
-       evaluate when the plan is built, before BeforeTargets-of-dependencies
-       run. So the suppression is STATIC below (evaluation time, no timing
-       hazard): test-mode output goes to a temp dir under obj/, cleaned
-       afterwards. An explicit -o (global, immutable) bypasses the static
-       redirect: warn loudly instead (task conditions ARE late-bound). -->
-  <!-- StfAllowPack=false stands the burial down too: pack behaves like a
-       plain test project (no prod redirect, normal output paths). Without
-       this the outer test nupkg would land under obj/ and be deleted,
-       turning the opt-out into a silent no-artifact pack. -->
-  <PropertyGroup Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfAllowTestSlicePackIsTrue)' != 'true' AND '$(StfAllowPackIsFalse)' != 'true'">
-    <StfTestPackDir>$(BaseIntermediateOutputPath)stf-test-pack/</StfTestPackDir>
-    <PackageOutputPath>$(StfTestPackDir)</PackageOutputPath>
+  <!-- Register dispatchers after the SDK defines its command targets. They
+       replace the outer test command before any test build or copy happens.
+       User output properties stay untouched and flow to the prod process. -->
+  <PropertyGroup Condition="'$(StfSdkMode)' != 'true' AND '$(StfTestIsTrue)' == 'true' AND '$(StfAllowTestSlicePackIsTrue)' != 'true' AND '$(StfAllowPackIsFalse)' != 'true'">
+    <StfOriginalPackTargets Condition="'$(NuGetBuildTasksPackTargets)' != ''">$(NuGetBuildTasksPackTargets)</StfOriginalPackTargets>
+    <StfOriginalPackTargets Condition="'$(StfOriginalPackTargets)' == ''">$(MSBuildToolsPath)/NuGet.Build.Tasks.Pack.targets</StfOriginalPackTargets>
+    <NuGetBuildTasksPackTargets>$(MSBuildThisFileDirectory)Stf.GoTest.Pack.targets</NuGetBuildTasksPackTargets>
+    <ImportNuGetBuildTasksPackTargetsFromSdk Condition="'$(ImportNuGetBuildTasksPackTargetsFromSdk)' == ''">true</ImportNuGetBuildTasksPackTargetsFromSdk>
   </PropertyGroup>
-  <!-- Same once-only rule as the dual build above: the first-TFM inner.
-       Per-inner firing would nest N full prod packs racing over shared obj/.
-       KNOWN LIMITATION (multi-TFM): default 'dotnet pack' is a silent no-op
-       (exit 0, builds/packs nothing). Root cause is outside package control:
-       the dispatcher evaluation skips package imports, and the CLI never
-       reaches the wired inners when conditioned test refs are present
-       (verified by bisection: Stf-ref-only packs, +xunit group goes silent).
-       Narrowing with -p:TargetFramework= fails loud with upstream NU5026
-       (verified identical on a stock project: 'dotnet pack' has no -f and
-       the SDK cannot narrow pack to one TFM). Workaround: explicit full
-       prod pack 'dotnet pack -p:StfTest=false' (verified pure, all TFMs).
-       Single-TFM auto-redirect is unaffected. -->
-  <Target Name="StfPackProdSliceInstead"
-          BeforeTargets="GenerateNuspec"
-          Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfAllowTestSlicePackIsTrue)' != 'true' AND '$(StfAllowPackIsFalse)' != 'true' AND '$(TargetFramework)' == '$(StfFirstTfm)'">
-    <Message Importance="high" Text="Stf.GoTest: 'dotnet pack' ships the PROD slice; the test slice never ships." />
-    <Warning Condition="'$(PackageOutputPath)' != '$(StfTestPackDir)'"
-             Text="Stf.GoTest: explicit output path with test-mode pack: the outer TEST nupkg will also land in '$(PackageOutputPath)'. Ship prod instead: dotnet pack -p:StfTest=false -o '$(PackageOutputPath)'." />
-    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Pack -p:StfTest=false -p:StfNested=true -p:Configuration="$(Configuration)" -p:Platform=$(Platform) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
-          WorkingDirectory="$(MSBuildProjectDirectory)" />
-  </Target>
-  <Target Name="StfCleanSuppressedPack"
-          AfterTargets="Pack"
-          Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfAllowTestSlicePackIsTrue)' != 'true'">
-    <RemoveDir Directories="$(StfTestPackDir)"
-               Condition="'$(StfTestPackDir)' != '' AND Exists('$(StfTestPackDir)')" />
-  </Target>
-
-  <!-- Publish auto-redirect, same shape as pack above. Plain 'dotnet publish'
-       (test mode) ships the PROD slice via a nested prod publish in a fresh
-       process; the outer test publish is buried under obj/ by the STATIC
-       redirect below (in-target suppression is impossible: target conditions
-       evaluate at plan time) and cleaned afterwards. Hook placement is free
-       here (BeforeTargets="Publish"): nothing is suppressed, so the
-       DependsOnTargets-before-BeforeTargets trap does not apply.
-       Forwarding is the safety-critical part (unlike pack): these properties
-       change WHAT runs in production, so the known-finite list travels
-       explicitly. Empty forwards equal unset (SDK gates on =='true'/=='').
-       -o/PublishDir is NOT forwarded: the outer test publish would overwrite
-       prod at a user path — warn loudly instead (task conditions are
-       late-bound). StfAllowTestSlicePublish=true (or the pack hatch, kept as
-       a superset for backward compat) publishes the test slice as-is, exactly
-       like a plain test project would. Only FileSystem publish is in scope. -->
-  <PropertyGroup Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfAllowTestSlicePackIsTrue)' != 'true' AND '$(StfAllowTestSlicePublishIsTrue)' != 'true'">
-    <StfTestPublishDir>$(BaseIntermediateOutputPath)stf-test-publish/</StfTestPublishDir>
-    <PublishDir>$(StfTestPublishDir)</PublishDir>
+  <PropertyGroup Condition="'$(StfSdkMode)' != 'true' AND '$(StfTestIsTrue)' == 'true' AND '$(StfAllowTestSlicePackIsTrue)' != 'true' AND '$(StfAllowTestSlicePublishIsTrue)' != 'true'">
+    <AfterMicrosoftNETSdkTargets>$(AfterMicrosoftNETSdkTargets);$(MSBuildThisFileDirectory)Stf.GoTest.Publish.targets</AfterMicrosoftNETSdkTargets>
   </PropertyGroup>
-  <!-- Once-only rule, same as pack/dual: only the first-TFM inner nests the
-       prod publish. Unreachable today (multi-TFM publish dies upstream with
-       NETSDK1129 before any inner runs — verified), but without the gate a
-       future SDK that dispatches Publish per inner would nest N concurrent
-       prod publishes over shared obj/. Zero behavior change on every
-       reachable path; the single-TFM publish steps lock that in. -->
-  <Target Name="StfPublishProdSliceInstead"
-          BeforeTargets="Publish"
-          Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfAllowTestSlicePackIsTrue)' != 'true' AND '$(StfAllowTestSlicePublishIsTrue)' != 'true' AND '$(TargetFramework)' == '$(StfFirstTfm)'">
-    <Message Importance="high" Text="Stf.GoTest: 'dotnet publish' ships the PROD slice; the test slice never ships." />
-    <Warning Condition="'$(PublishDir)' != '$(StfTestPublishDir)'"
-             Text="Stf.GoTest: explicit output path with test-mode publish: the outer TEST publish will also land in '$(PublishDir)'. Ship prod instead: dotnet publish -p:StfTest=false -o '$(PublishDir)'." />
-    <Exec Command='dotnet msbuild "$(MSBuildProjectFullPath)" -t:Publish -p:StfTest=false -p:StfNested=true -p:Configuration="$(Configuration)" -p:Platform=$(Platform) -p:TargetFramework=$(TargetFramework) -p:RuntimeIdentifier=$(RuntimeIdentifier) -p:SelfContained=$(SelfContained) -p:PublishSingleFile=$(PublishSingleFile) -p:PublishTrimmed=$(PublishTrimmed) -p:PublishAot=$(PublishAot) -p:PublishReadyToRun=$(PublishReadyToRun) -p:UseArtifactsOutput=$(UseArtifactsOutput) -p:ArtifactsPath="$(ArtifactsPath)" -v:m -nologo'
-          WorkingDirectory="$(MSBuildProjectDirectory)" />
-  </Target>
-  <Target Name="StfCleanSuppressedPublish"
-          AfterTargets="Publish"
-          Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfAllowTestSlicePackIsTrue)' != 'true' AND '$(StfAllowTestSlicePublishIsTrue)' != 'true'">
-    <RemoveDir Directories="$(StfTestPublishDir)"
-               Condition="'$(StfTestPublishDir)' != '' AND Exists('$(StfTestPublishDir)')" />
-  </Target>
 </Project>

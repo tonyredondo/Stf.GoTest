@@ -1,0 +1,4 @@
+<Project>
+  <Import Project="../build/Stf.GoTest.targets" />
+  <Import Project="Stf.Test.targets" Condition="'$(StfTestIsTrue)' == 'true'" />
+</Project>
