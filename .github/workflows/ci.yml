@@ -174,8 +174,8 @@ jobs:
 
       - name: Pack the release nupkg
         run: |
-          rm -rf /tmp/stf-pkga /tmp/stf-pkgb
-          dotnet pack src/Stf.GoTest/Stf.GoTest.csproj -c Release -o /tmp/stf-pkga -nologo
+          rm -rf artifacts/ci-package /tmp/stf-pkgb
+          dotnet pack src/Stf.GoTest/Stf.GoTest.csproj -c Release -o artifacts/ci-package -nologo
           V=$(dotnet msbuild src/Stf.GoTest/Stf.GoTest.csproj -getProperty:Version | tr -d ' \r\n')
           echo "STF_VERSION=$V" >> "$GITHUB_ENV"
 
@@ -190,7 +190,7 @@ jobs:
           rm -rf src/Stf.GoTest/bin src/Stf.GoTest/obj
           dotnet pack src/Stf.GoTest/Stf.GoTest.csproj -c Release -o /tmp/stf-pkgb -nologo
           for d in /tmp/stf-cmpa /tmp/stf-cmpb; do rm -rf "$d"; mkdir -p "$d"; done
-          unzip -oq "/tmp/stf-pkga/Stf.GoTest.$STF_VERSION.nupkg" '*.nuspec' 'build/*' 'buildTransitive/*' -d /tmp/stf-cmpa
+          unzip -oq "artifacts/ci-package/Stf.GoTest.$STF_VERSION.nupkg" '*.nuspec' 'build/*' 'buildTransitive/*' -d /tmp/stf-cmpa
           unzip -oq "/tmp/stf-pkgb/Stf.GoTest.$STF_VERSION.nupkg" '*.nuspec' 'build/*' 'buildTransitive/*' -d /tmp/stf-cmpb
           diff -r /tmp/stf-cmpa /tmp/stf-cmpb || { echo 'NON-DETERMINISTIC PACKAGE CONTENT'; exit 1; }
           echo 'DETERMINISTIC-CONTENT-OK'
@@ -198,7 +198,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Stf.GoTest-${{ env.STF_VERSION }}
-          path: /tmp/stf-pkga/Stf.GoTest-${{ env.STF_VERSION }}.nupkg
+          path: artifacts/ci-package/Stf.GoTest-${{ env.STF_VERSION }}.nupkg
 
   aot:
     runs-on: ubuntu-latest
