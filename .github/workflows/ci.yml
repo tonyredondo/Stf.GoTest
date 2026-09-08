@@ -35,7 +35,12 @@ jobs:
         run: dotnet pack src/Stf.GoTest/Stf.GoTest.csproj -o artifacts/packages
 
       - name: Read package version for scratch pins
-        run: echo "STF_VERSION=$(dotnet msbuild src/Stf.GoTest/Stf.GoTest.csproj -getProperty:Version | tr -d ' \r\n')" >> "$GITHUB_ENV"
+        run: |
+          # Read Version from the csproj text, never from msbuild stdout:
+          # -getProperty output proved unreliable for interpolation on runners.
+          STF_VERSION=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' src/Stf.GoTest/Stf.GoTest.csproj)
+          test -n "$STF_VERSION" || { echo 'could not read Version from csproj'; exit 1; }
+          echo "STF_VERSION=$STF_VERSION" >> "$GITHUB_ENV"
 
       - name: Demo dual build
         run: |
@@ -212,6 +217,10 @@ jobs:
         with:
           name: ${{ env.STF_PKG_NAME }}
           path: ${{ env.STF_PKG_PATH }}
+          # Never green-without-artifact again (warn hid two empty uploads),
+          # and stay re-runnable (same name would otherwise collide).
+          if-no-files-found: error
+          overwrite: true
 
   aot:
     runs-on: ubuntu-latest
@@ -233,7 +242,8 @@ jobs:
           S="$RUNNER_TEMP/stfaot"
           rm -rf "$S" && mkdir -p "$S/aotdemo"
           printf '<?xml version="1.0" encoding="utf-8"?><configuration><packageSources><clear /><add key="local" value="%s/artifacts/packages" /><add key="nuget.org" value="https://api.nuget.org/v3/index.json" /></packageSources></configuration>' "$GITHUB_WORKSPACE" > "$S/aotdemo/nuget.config"
-          V=$(dotnet msbuild src/Stf.GoTest/Stf.GoTest.csproj -getProperty:Version | tr -d ' \r\n')
+          V=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' src/Stf.GoTest/Stf.GoTest.csproj)
+          test -n "$V" || { echo 'could not read Version from csproj'; exit 1; }
           cat > "$S/aotdemo/aotdemo.csproj" <<EOF
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>

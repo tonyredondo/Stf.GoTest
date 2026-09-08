@@ -53,7 +53,7 @@ by default; test only shows up where it belongs**.
 | Exe with `Main` outside `Program.cs` | actionable error (backstop) | PROD | actionable error |
 | Exe with old snippet | bare CS0017 ([migrate](#old-snippet)) | PROD | bare CS0017 |
 | Lib with Main-less `Program.cs` | green | PROD | green |
-| `WinExe` | fires the error on Windows; restore degrades on macOS | PROD (on Windows) | same |
+| `WinExe` | loud guard on all 3 CI OSes (a degraded restore falls back to the upstream error, still loud) | PROD | same |
 
 ### `dotnet test` / `dotnet pack` / `dotnet publish` / `dotnet run`
 
@@ -116,9 +116,10 @@ without a `Program.cs`, never notice.
 
 ## Known limits
 
-- `WinExe` restored off-Windows degrades the restore (no `Pkg`) and the guard
-  stays silent; on Windows the guard fires (asserted in CI, which prints the
-  branch). IDE behavior (VS/Rider/VSCode) still to verify.
+- `WinExe`: the guard fires on all 3 CI OSes (the backstop step prints the
+  branch). A degraded restore (no `Pkg`) skips the guard, but the build still
+  fails loud with the upstream compiler error. IDE behavior (VS/Rider/VSCode)
+  still to verify.
 - `--no-restore` right after a dual `dotnet build` fails loud (`Xunit` not
   found): the dual leaves prod assets in `obj/` and only a restore heals back
   to the test closure. Any command with restore recovers.
