@@ -66,6 +66,25 @@ jobs:
           test -z "$(find demo/Demo/bin/Debug -iname '*xunit*' -o -iname '*testhost*' -o -iname '*testplatform*' 2>/dev/null)"
           test -n "$(find demo/Demo/bin/test -iname 'xunit*.dll' 2>/dev/null)"
 
+      - name: Clean wipes both slices, rebuild restores (F-I)
+        run: |
+          test -f demo/Demo/bin/Debug/net8.0/Demo.dll
+          test -f demo/Demo/bin/test/Debug/net8.0/Demo.dll
+          dotnet clean demo/Demo/Demo.csproj
+          test ! -f demo/Demo/bin/Debug/net8.0/Demo.dll
+          test ! -f demo/Demo/bin/test/Debug/net8.0/Demo.dll
+          dotnet build demo/Demo/Demo.csproj
+          test -f demo/Demo/bin/Debug/net8.0/Demo.dll
+          test -f demo/Demo/bin/test/Debug/net8.0/Demo.dll
+
+      - name: Artifacts output separates both slices (S-2)
+        run: |
+          A="$RUNNER_TEMP/stfart"
+          rm -rf "$A"
+          dotnet build demo/Demo/Demo.csproj -p:UseArtifactsOutput=true -p:ArtifactsPath="$A"
+          test -f "$A/bin/Demo/test/debug/Demo.dll"
+          test -f "$A/bin/Demo/debug/Demo.dll"
+
       - name: Demo pack ships prod only
         run: |
           dotnet pack demo/Demo/Demo.csproj 2>&1 | tee /tmp/stf-demo-pack.log
@@ -218,7 +237,7 @@ jobs:
           test "$(t StfAllowPackIsFalse StfAllowPack=false)" = "true"
           test -z "$(t StfAllowPackIsFalse StfAllowPack=1)"
           test "$(t StfAllowBareTestRefsIsTrue StfAllowBareTestRefs=on)" = "true"
-          test "$(t StfTestBaseOutputApplied StfTest=1)" = "true"
+          test "$(t StfSeparateTestOutputsApplied StfTest=1)" = "true"
 
       - name: Run forwards the RID to nested builds (R8)
         run: |
@@ -359,6 +378,44 @@ jobs:
           cd "$S/oldsnip"
           if dotnet build oldsnip.csproj > /tmp/stf-oldsnip.log 2>&1; then echo 'UNEXPECTED PASS'; exit 1; fi
           grep -qE 'CS0017|CS0246' /tmp/stf-oldsnip.log
+
+      - name: Multi-TFM build duals every TFM once (S-1)
+        run: |
+          M="$RUNNER_TEMP/stfci-mtfm"
+          rm -rf "$M" && mkdir -p "$M"
+          cp "$S/nuget.config" "$M/nuget.config"
+          V="$STF_VERSION"
+          cat > "$M/mtfm.csproj" <<EOF
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+              <Nullable>enable</Nullable>
+              <ImplicitUsings>enable</ImplicitUsings>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Stf.GoTest" Version="$V" PrivateAssets="all" />
+            </ItemGroup>
+            <ItemGroup Condition="'\$(StfTest)' != 'false'">
+              <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" PrivateAssets="all" GeneratePathProperty="true" />
+              <PackageReference Include="xunit" Version="2.4.2" PrivateAssets="all" />
+              <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3" PrivateAssets="all" />
+            </ItemGroup>
+          </Project>
+          EOF
+          cat > "$M/Calc.cs" <<'EOF'
+          public static class Calc { public static int Add(int a, int b) => a + b; }
+          EOF
+          cat > "$M/Calc.Test.cs" <<'EOF'
+          public static class CalcTests { [Xunit.Fact] public static void Add() => Xunit.Assert.Equal(3, Calc.Add(1, 2)); }
+          EOF
+          cd "$M"
+          dotnet build mtfm.csproj 2>&1 | tee /tmp/stf-mtfm.log
+          test -f bin/test/Debug/net8.0/mtfm.dll
+          test -f bin/test/Debug/net9.0/mtfm.dll
+          test -f bin/Debug/net8.0/mtfm.dll
+          test -f bin/Debug/net9.0/mtfm.dll
+          test "$(grep -c 'TEST slice built' /tmp/stf-mtfm.log)" = "2"
+          test "$(grep -c 'PROD slice built' /tmp/stf-mtfm.log)" = "2"
 
   package:
     runs-on: ubuntu-latest

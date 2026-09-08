@@ -51,6 +51,6 @@
        Restore stays shared. -->
   <PropertyGroup Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfSeparateOutputsIsTrue)' == 'true'">
     <!-- Applied-flag: see above. -->
-    <StfTestBaseOutputApplied>true</StfTestBaseOutputApplied>
+    <StfSeparateTestOutputsApplied>true</StfSeparateTestOutputsApplied>
   </PropertyGroup>
 </Project>

@@ -73,6 +73,9 @@ ship the test slice as-is. `StfDualBuild=false` disables the dual build.
 `StfAllowBareTestRefs=true` silences the unconditioned-ref warning (also
 covers `xunit.v3`). In the IDE, `#if STF_TEST` marks test-only code.
 
+`UseArtifactsOutput` keeps working: slices separate under
+`artifacts/bin/<project>/` (`test/` + base); nested builds forward the flags.
+
 ## Why the snippet looks like this
 
 Every piece exists because of a verified MSBuild/NuGet wall:
