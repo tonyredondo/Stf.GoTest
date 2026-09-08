@@ -152,6 +152,7 @@ jobs:
           cd "$S/appmain"
           if dotnet build appmain.csproj > /tmp/stf-backstop.log 2>&1; then echo 'UNEXPECTED PASS'; exit 1; fi
           grep -qE 'Stf.GoTest: entry point|error CS' /tmp/stf-backstop.log
+          grep -q 'Stf.GoTest: entry point' /tmp/stf-backstop.log && echo 'BRANCH: loud Stf guard' || echo 'BRANCH: upstream compiler error (guard degraded)'
 
       - name: Old snippet — fails loud without guard
         run: |

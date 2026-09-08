@@ -117,8 +117,11 @@ without a `Program.cs`, never notice.
 ## Known limits
 
 - `WinExe` restored off-Windows degrades the restore (no `Pkg`) and the guard
-  stays silent; still to verify on real Windows, like VS/Rider/VSCode and
-  Windows/Linux CI.
+  stays silent; on Windows the guard fires (asserted in CI, which prints the
+  branch). IDE behavior (VS/Rider/VSCode) still to verify.
+- `--no-restore` right after a dual `dotnet build` fails loud (`Xunit` not
+  found): the dual leaves prod assets in `obj/` and only a restore heals back
+  to the test closure. Any command with restore recovers.
 - `dotnet test` with `StfTest=false` goes green silently with 0 tests
   (candidate for its own warning).
 - `*.Test.cs` that doesn't compile blocks `dotnet run` (the CLI's build phase

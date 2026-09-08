@@ -45,7 +45,6 @@
     <PackageOutputPath>$(PackageOutputPath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</PackageOutputPath>
     <PublishDir>$(PublishDir.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</PublishDir>
     <_NormalizedPublishDir>$(_NormalizedPublishDir.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</_NormalizedPublishDir>
-    <FinalOutputPath>$(FinalOutputPath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</FinalOutputPath>
     <ProjectDepsFilePath>$(ProjectDepsFilePath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</ProjectDepsFilePath>
     <ProjectRuntimeConfigFilePath>$(ProjectRuntimeConfigFilePath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</ProjectRuntimeConfigFilePath>
     <ProjectRuntimeConfigDevFilePath>$(ProjectRuntimeConfigDevFilePath.Replace('bin/test/', 'bin\').Replace('bin\test\', 'bin\'))</ProjectRuntimeConfigDevFilePath>
