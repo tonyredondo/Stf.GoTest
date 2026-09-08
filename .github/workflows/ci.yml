@@ -1,0 +1,204 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: 1
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+
+jobs:
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack Stf.GoTest into the local feed
+        run: dotnet pack src/Stf.GoTest/Stf.GoTest.csproj -o artifacts/packages
+
+      - name: Read package version for scratch pins
+        run: echo "STF_VERSION=$(dotnet msbuild src/Stf.GoTest/Stf.GoTest.csproj -getProperty:Version | tr -d ' \r\n')" >> "$GITHUB_ENV"
+
+      - name: Demo dual build
+        run: |
+          rm -rf demo/Demo/bin demo/Demo/obj
+          dotnet build demo/Demo/Demo.csproj
+          test -f demo/Demo/bin/Debug/net8.0/Demo.dll
+          test -f demo/Demo/bin/test/Debug/net8.0/Demo.dll
+
+      - name: Demo tests
+        run: |
+          dotnet test demo/Demo/Demo.csproj 2>&1 | tee /tmp/stf-demo-test.log
+          grep -q 'Passed!' /tmp/stf-demo-test.log
+
+      - name: Demo pack ships prod only
+        run: |
+          dotnet pack demo/Demo/Demo.csproj 2>&1 | tee /tmp/stf-demo-pack.log
+          grep -q 'ships the PROD slice' /tmp/stf-demo-pack.log
+          test -f demo/Demo/bin/Release/Demo.1.0.0.nupkg
+
+      - name: Demo publish ships prod only
+        run: |
+          dotnet publish demo/Demo/Demo.csproj
+          test -f demo/Demo/bin/Release/net8.0/publish/Demo.dll
+
+      - name: Create scratch projects
+        run: |
+          S="$RUNNER_TEMP/stfci"
+          rm -rf "$S" && mkdir -p "$S/exenoline" "$S/exewithline" "$S/appmain" "$S/libprog" "$S/oldsnip"
+          printf '<?xml version="1.0" encoding="utf-8"?><configuration><packageSources><clear /><add key="local" value="%s/artifacts/packages" /><add key="nuget.org" value="https://api.nuget.org/v3/index.json" /></packageSources></configuration>' "$GITHUB_WORKSPACE" > "$S/nuget.config"
+          for p in exenoline exewithline appmain libprog oldsnip; do cp "$S/nuget.config" "$S/$p/"; done
+          for p in exenoline exewithline appmain libprog oldsnip; do
+            cat > "$S/$p/$p.csproj" <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+          __OUTPUTTYPE__
+              <TargetFramework>net8.0</TargetFramework>
+              <Nullable>enable</Nullable>
+              <ImplicitUsings>enable</ImplicitUsings>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Stf.GoTest" Version="__VERSION__" PrivateAssets="all" />
+            </ItemGroup>
+            <ItemGroup Condition="'$(StfTest)' != 'false'">
+              <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" PrivateAssets="all"__GPP__ />
+              <PackageReference Include="xunit" Version="2.4.2" PrivateAssets="all" />
+              <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3" PrivateAssets="all" />
+            </ItemGroup>
+          </Project>
+          EOF
+          done
+          fix() { sed -i.bak "$1" "$2"; rm -f "$2.bak"; }
+          for p in exenoline exewithline appmain libprog oldsnip; do fix "s/__VERSION__/$STF_VERSION/" "$S/$p/$p.csproj"; done
+          for p in exenoline exewithline oldsnip; do fix 's#__OUTPUTTYPE__#<OutputType>Exe</OutputType>#' "$S/$p/$p.csproj"; done
+          fix 's#__OUTPUTTYPE__#<OutputType>WinExe</OutputType>#' "$S/appmain/appmain.csproj"
+          fix '/__OUTPUTTYPE__/d' "$S/libprog/libprog.csproj"
+          for p in exenoline exewithline appmain libprog; do fix 's#__GPP__# GeneratePathProperty="true"#' "$S/$p/$p.csproj"; done
+          fix 's#__GPP__##' "$S/oldsnip/oldsnip.csproj"
+          fix 's#<OutputType>Exe</OutputType>#<OutputType>Exe</OutputType>\n    <StfTest>false</StfTest>#' "$S/exewithline/exewithline.csproj"
+          cat > "$S/exenoline/Program.cs" <<'EOF'
+          public static class Program { public static void Main() { System.Console.WriteLine(Calc.Add(1, 2)); } }
+          EOF
+          cp "$S/exenoline/Program.cs" "$S/exewithline/Program.cs"
+          cp "$S/exenoline/Program.cs" "$S/oldsnip/Program.cs"
+          cat > "$S/appmain/App.cs" <<'EOF'
+          public static class App { public static void Main() { System.Console.WriteLine(Calc.Add(1, 2)); } }
+          EOF
+          cat > "$S/libprog/Program.cs" <<'EOF'
+          public static class Program { public static string Name() => "not-an-entry-point"; }
+          EOF
+          for p in exenoline exewithline appmain libprog oldsnip; do
+            cat > "$S/$p/Calc.cs" <<'EOF'
+          public static class Calc { public static int Add(int a, int b) => a + b; }
+          EOF
+            cat > "$S/$p/Calc.Test.cs" <<'EOF'
+          public static class CalcTests { [Xunit.Fact] public static void Add() => Xunit.Assert.Equal(3, Calc.Add(1, 2)); }
+          EOF
+          done
+          echo "S=$S" >> "$GITHUB_ENV"
+
+      - name: Exe without line — dual build, tests run
+        run: |
+          cd "$S/exenoline"
+          dotnet build exenoline.csproj
+          test -f bin/Debug/net8.0/exenoline.dll
+          test -f bin/test/Debug/net8.0/exenoline.dll
+          dotnet test exenoline.csproj 2>&1 | tee /tmp/stf-exe-test.log
+          grep -q 'Passed!' /tmp/stf-exe-test.log
+
+      - name: Exe without line — pack ships prod, run executes app
+        run: |
+          cd "$S/exenoline"
+          dotnet pack exenoline.csproj 2>&1 | tee /tmp/stf-exe-pack.log
+          grep -q 'ships the PROD slice' /tmp/stf-exe-pack.log
+          test -f bin/Release/exenoline.1.0.0.nupkg
+          test "$(dotnet run 2>&1 | tail -1)" = "3"
+
+      - name: Exe with line — prod only
+        run: |
+          cd "$S/exewithline"
+          dotnet build exewithline.csproj
+          test -f bin/Debug/net8.0/exewithline.dll
+          test ! -d bin/test
+          test "$(dotnet run 2>&1 | tail -1)" = "3"
+
+      - name: Lib with Main-less Program.cs — green without hatch
+        run: |
+          cd "$S/libprog"
+          dotnet build libprog.csproj
+          dotnet test libprog.csproj 2>&1 | tee /tmp/stf-libprog-test.log
+          grep -q 'Passed!' /tmp/stf-libprog-test.log
+
+      - name: Backstop — Main outside Program.cs fails loud, never green
+        run: |
+          cd "$S/appmain"
+          if dotnet build appmain.csproj > /tmp/stf-backstop.log 2>&1; then echo 'UNEXPECTED PASS'; exit 1; fi
+          grep -qE 'Stf.GoTest: entry point|error CS' /tmp/stf-backstop.log
+
+      - name: Old snippet — fails loud without guard
+        run: |
+          cd "$S/oldsnip"
+          if dotnet build oldsnip.csproj > /tmp/stf-oldsnip.log 2>&1; then echo 'UNEXPECTED PASS'; exit 1; fi
+          grep -qE 'CS0017|CS0246' /tmp/stf-oldsnip.log
+
+  aot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack Stf.GoTest into the local feed
+        run: dotnet pack src/Stf.GoTest/Stf.GoTest.csproj -o artifacts/packages
+
+      - name: NativeAOT publish of explicit prod slice
+        run: |
+          S="$RUNNER_TEMP/stfaot"
+          rm -rf "$S" && mkdir -p "$S/aotdemo"
+          printf '<?xml version="1.0" encoding="utf-8"?><configuration><packageSources><clear /><add key="local" value="%s/artifacts/packages" /><add key="nuget.org" value="https://api.nuget.org/v3/index.json" /></packageSources></configuration>' "$GITHUB_WORKSPACE" > "$S/aotdemo/nuget.config"
+          V=$(dotnet msbuild src/Stf.GoTest/Stf.GoTest.csproj -getProperty:Version | tr -d ' \r\n')
+          cat > "$S/aotdemo/aotdemo.csproj" <<EOF
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>Exe</OutputType>
+              <StfTest>false</StfTest>
+              <TargetFramework>net8.0</TargetFramework>
+              <Nullable>enable</Nullable>
+              <ImplicitUsings>enable</ImplicitUsings>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Stf.GoTest" Version="$V" PrivateAssets="all" />
+            </ItemGroup>
+          </Project>
+          EOF
+          cat > "$S/aotdemo/Program.cs" <<'EOF'
+          public static class Program { public static void Main() { System.Console.WriteLine(1 + 2); } }
+          EOF
+          cd "$S/aotdemo"
+          dotnet publish -p:PublishAot=true -r linux-x64
+          test -x publish/aotdemo
+          test "$(./publish/aotdemo)" = "3"
+          if ls publish/*.dll >/dev/null 2>&1; then echo 'managed dlls in native publish'; exit 1; fi

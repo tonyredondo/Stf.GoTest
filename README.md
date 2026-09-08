@@ -1,5 +1,7 @@
 # Stf.GoTest — Go-style tests in a single `.csproj`
 
+[![CI](https://github.com/tonyredondo/stf/actions/workflows/ci.yml/badge.svg)](https://github.com/tonyredondo/stf/actions/workflows/ci.yml)
+
 A NuGet package that brings Go's test model to .NET: code and its tests live
 in the **same project** — no second test project, no `InternalsVisibleTo`.
 `*.Test.cs` files compile into the test slice and are excluded from prod.
