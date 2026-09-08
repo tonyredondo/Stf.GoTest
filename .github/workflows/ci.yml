@@ -26,8 +26,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -168,6 +168,152 @@ jobs:
           dotnet test libprog.csproj -p:StfSeparateOutputs=false --no-build 2>&1 | tee /tmp/stf-shared-test.log
           grep -q 'Passed!' /tmp/stf-shared-test.log
 
+      - name: Flag spellings behave, dual opt-out works (R1)
+        run: |
+          cd "$S/libprog"
+          rm -rf bin obj
+          dotnet build libprog.csproj -p:StfTest=1 2>&1 | tee /tmp/stf-spell1.log
+          test -f bin/test/Debug/net8.0/libprog.dll
+          test -f bin/Debug/net8.0/libprog.dll
+          rm -rf bin obj
+          dotnet build libprog.csproj -p:StfSeparateOutputs=1 2>&1 | tee /tmp/stf-spell2.log
+          test -f bin/test/Debug/net8.0/libprog.dll
+          rm -rf bin obj
+          dotnet build libprog.csproj -p:StfSeparateOutputs=0 2>&1 | tee /tmp/stf-spell3.log
+          test ! -d bin/test
+          test -f bin/Debug/net8.0/libprog.dll
+          dotnet test libprog.csproj -p:StfSeparateOutputs=0 --no-build 2>&1 | tee /tmp/stf-spell4.log
+          grep -q 'Passed!' /tmp/stf-spell4.log
+          rm -rf bin obj
+          dotnet build libprog.csproj -p:StfTest=0 2>&1 | tee /tmp/stf-spell5.log
+          test ! -d bin/test
+          test -f bin/Debug/net8.0/libprog.dll
+          rm -rf bin obj
+          dotnet build libprog.csproj -p:StfDualBuild=0 2>&1 | tee /tmp/stf-spell6.log
+          test ! -f bin/Debug/net8.0/libprog.dll
+          test -f bin/test/Debug/net8.0/libprog.dll
+
+      - name: Run forwards the RID to nested builds (R8)
+        run: |
+          case "$RUNNER_OS" in
+            Linux) RID=linux-x64 ;;
+            Windows) RID=win-x64 ;;
+            macOS) RID=osx-arm64 ;;
+          esac
+          cd "$S/exenoline"
+          rm -rf bin obj
+          test "$(dotnet run -r "$RID" 2>&1 | tail -1)" = "3"
+          test ! -f bin/Debug/net8.0/exenoline.dll
+          test -f "bin/Debug/net8.0/$RID/exenoline.dll"
+
+      - name: Bare xunit.v3 warns about the missing condition (R3)
+        run: |
+          B="$RUNNER_TEMP/stfci-barev3"
+          rm -rf "$B" && mkdir -p "$B"
+          cp "$S/nuget.config" "$B/nuget.config"
+          V="$STF_VERSION"
+          cat > "$B/barev3.csproj" <<EOF
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>Exe</OutputType>
+              <StfTest>false</StfTest>
+              <TargetFramework>net8.0</TargetFramework>
+              <Nullable>enable</Nullable>
+              <ImplicitUsings>enable</ImplicitUsings>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Stf.GoTest" Version="$V" PrivateAssets="all" />
+            </ItemGroup>
+            <ItemGroup>
+              <PackageReference Include="xunit" Version="2.4.2" />
+              <PackageReference Include="xunit.v3" Version="4.0.0" />
+            </ItemGroup>
+          </Project>
+          EOF
+          cat > "$B/Program.cs" <<'EOF'
+          public static class Program { public static void Main() { System.Console.WriteLine(Calc.Add(1, 2)); } }
+          EOF
+          cat > "$B/Calc.cs" <<'EOF'
+          public static class Calc { public static int Add(int a, int b) => a + b; }
+          EOF
+          cd "$B"
+          # The build itself fails (xunit.v3 injects its own Main, like the
+          # Test SDK): the warning must fire before that, at BeforeBuild.
+          dotnet build barev3.csproj > /tmp/stf-barev3.log 2>&1 || true
+          grep -q "PackageReference 'xunit'" /tmp/stf-barev3.log
+          grep -q "PackageReference 'xunit.v3'" /tmp/stf-barev3.log
+          ! grep -q "PackageReference 'Stf.GoTest'" /tmp/stf-barev3.log
+
+      - name: StfAllowPack=false leaves pack alone (R5)
+        run: |
+          cd "$S/libprog"
+          rm -rf bin obj
+          dotnet pack libprog.csproj -p:StfAllowPack=false 2>&1 | tee /tmp/stf-allowpack.log
+          ! grep -q 'ships the PROD slice' /tmp/stf-allowpack.log
+          test -z "$(find bin obj -name '*.nupkg' 2>/dev/null)"
+
+      - name: Prod heal keeps lookalike constants (R7)
+        run: |
+          H="$RUNNER_TEMP/stfci-healconst"
+          rm -rf "$H" && mkdir -p "$H"
+          cp "$S/nuget.config" "$H/nuget.config"
+          V="$STF_VERSION"
+          cat > "$H/healconst.csproj" <<EOF
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net8.0</TargetFramework>
+              <Nullable>enable</Nullable>
+              <ImplicitUsings>enable</ImplicitUsings>
+              <StfTest>false</StfTest>
+              <DefineConstants>TRACE;STF_TESTING</DefineConstants>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Stf.GoTest" Version="$V" PrivateAssets="all" />
+            </ItemGroup>
+          </Project>
+          EOF
+          cat > "$H/Calc.cs" <<'EOF'
+          public static class Calc { public static int Add(int a, int b) => a + b; }
+          EOF
+          cd "$H"
+          dotnet build healconst.csproj
+          dotnet msbuild healconst.csproj -getProperty:DefineConstants -nologo 2>&1 | tee /tmp/stf-healconst.log
+          grep -q 'TRACE;STF_TESTING' /tmp/stf-healconst.log
+
+      - name: Lowercase test files strip from prod (R9)
+        run: |
+          L="$RUNNER_TEMP/stfci-lowerstrip"
+          rm -rf "$L" && mkdir -p "$L"
+          cp "$S/nuget.config" "$L/nuget.config"
+          V="$STF_VERSION"
+          cat > "$L/lowerstrip.csproj" <<EOF
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net8.0</TargetFramework>
+              <Nullable>enable</Nullable>
+              <ImplicitUsings>enable</ImplicitUsings>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Stf.GoTest" Version="$V" PrivateAssets="all" />
+            </ItemGroup>
+            <ItemGroup Condition="'\$(StfTest)' != 'false'">
+              <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" PrivateAssets="all" GeneratePathProperty="true" />
+              <PackageReference Include="xunit" Version="2.4.2" PrivateAssets="all" />
+              <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3" PrivateAssets="all" />
+            </ItemGroup>
+          </Project>
+          EOF
+          cat > "$L/Calc.cs" <<'EOF'
+          public static class Calc { public static int Add(int a, int b) => a + b; }
+          EOF
+          cat > "$L/Extra.test.cs" <<'EOF'
+          public static class ExtraTests { [Xunit.Fact] public static void Lower() => Xunit.Assert.Equal(3, Calc.Add(1, 2)); }
+          EOF
+          cd "$L"
+          dotnet build lowerstrip.csproj -p:StfTest=false
+          dotnet test lowerstrip.csproj 2>&1 | tee /tmp/stf-lowerstrip.log
+          grep -q 'Passed!' /tmp/stf-lowerstrip.log
+
       - name: Backstop — Main outside Program.cs fails loud, never green
         run: |
           cd "$S/appmain"
@@ -188,8 +334,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -229,7 +375,7 @@ jobs:
           diff -r /tmp/stf-cmpa /tmp/stf-cmpb || { echo 'NON-DETERMINISTIC PACKAGE CONTENT'; exit 1; }
           echo 'DETERMINISTIC-CONTENT-OK'
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: ${{ env.STF_PKG_NAME }}
           path: ${{ env.STF_PKG_PATH }}
@@ -245,8 +391,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 

@@ -13,22 +13,29 @@
          test mode cannot compile there upstream, so they set
          <StfTest>false</StfTest> once in the project body. -->
     <StfTest Condition="'$(StfTest)' == ''">true</StfTest>
-    <!-- MSBuild has no bool type: every flag is text. Accept the usual
-         boolean-ish spellings (== is already case-insensitive) and normalize
-         to true/false, so -p: and env vars can use 1/0/yes/no/on/off.
-         Unknown values keep fail-open test behavior (see .targets). -->
-    <StfTest Condition="'$(StfTest)' == '1' OR '$(StfTest)' == 'yes' OR '$(StfTest)' == 'y' OR '$(StfTest)' == 'on'">true</StfTest>
-    <StfTest Condition="'$(StfTest)' == '0' OR '$(StfTest)' == 'no' OR '$(StfTest)' == 'n' OR '$(StfTest)' == 'off'">false</StfTest>
+    <!-- MSBuild has no bool type: every flag is text, and -p:/env values
+         are GLOBAL (immutable: no assignment below can rewrite them). So
+         conditions never compare a flag directly — they read a canonical
+         twin that tolerates every spelling (== is case-insensitive):
+         1/yes/y/on count as true, 0/no/n/off as false. Unknown values stay
+         unset and keep fail-open test behavior by polarity (see .targets).
+         Without this, -p:StfTest=1 silently built PROD and
+         -p:StfSeparateOutputs=0 disabled separation while leaving the dual
+         on (the shared-dir clobber). Twins redefine at the top of .targets
+         (the body runs after props and may change raw values). -->
+    <StfTestIsTrue Condition="'$(StfTest)' == 'true' OR '$(StfTest)' == '1' OR '$(StfTest)' == 'yes' OR '$(StfTest)' == 'y' OR '$(StfTest)' == 'on'">true</StfTestIsTrue>
     <StfSeparateOutputs Condition="'$(StfSeparateOutputs)' == ''">true</StfSeparateOutputs>
-    <IsTestProject Condition="'$(StfTest)' == 'true' AND '$(IsTestProject)' == ''">true</IsTestProject>
+    <StfSeparateOutputsIsTrue Condition="'$(StfSeparateOutputs)' == 'true' OR '$(StfSeparateOutputs)' == '1' OR '$(StfSeparateOutputs)' == 'yes' OR '$(StfSeparateOutputs)' == 'y' OR '$(StfSeparateOutputs)' == 'on'">true</StfSeparateOutputsIsTrue>
+    <StfSeparateOutputsIsFalse Condition="'$(StfSeparateOutputs)' == 'false' OR '$(StfSeparateOutputs)' == '0' OR '$(StfSeparateOutputs)' == 'no' OR '$(StfSeparateOutputs)' == 'n' OR '$(StfSeparateOutputs)' == 'off'">true</StfSeparateOutputsIsFalse>
+    <IsTestProject Condition="'$(StfTestIsTrue)' == 'true' AND '$(IsTestProject)' == ''">true</IsTestProject>
     <!-- The SDK defaults this from IsTestProject during its own props, before a
          package can set IsTestProject. Set the derived value directly or the
          test slice gets no runtimeconfig.json and testhost cannot resolve the
          (transitive, non-copied) test dependencies at runtime. -->
-    <GenerateRuntimeConfigurationFiles Condition="'$(StfTest)' == 'true' AND '$(GenerateRuntimeConfigurationFiles)' == ''">true</GenerateRuntimeConfigurationFiles>
+    <GenerateRuntimeConfigurationFiles Condition="'$(StfTestIsTrue)' == 'true' AND '$(GenerateRuntimeConfigurationFiles)' == ''">true</GenerateRuntimeConfigurationFiles>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(StfTest)' == 'true'">
+  <PropertyGroup Condition="'$(StfTestIsTrue)' == 'true'">
     <!-- #DEFINE for the IDE: #if STF_TEST shows test-only code as active and
          grays the prod branch. Go build-constraint equivalent for C#. -->
     <DefineConstants>$(DefineConstants);STF_TEST</DefineConstants>
@@ -42,7 +49,7 @@
        project body assign it later), so deriving the test root here reads
        garbage. Paths separate in the .targets, where the base is final.
        Restore stays shared. -->
-  <PropertyGroup Condition="'$(StfTest)' == 'true' AND '$(StfSeparateOutputs)' == 'true'">
+  <PropertyGroup Condition="'$(StfTestIsTrue)' == 'true' AND '$(StfSeparateOutputsIsTrue)' == 'true'">
     <!-- Applied-flag: see above. -->
     <StfTestBaseOutputApplied>true</StfTestBaseOutputApplied>
   </PropertyGroup>

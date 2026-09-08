@@ -28,7 +28,8 @@ in the **same project** — no second test project, no `InternalsVisibleTo`.
 ```
 
 **3. Write `Thing.Test.cs`** next to `Thing.cs` (singular, like Go's `_test.go`;
-plural `*.Tests.cs` is also excluded from prod). Tests see `internal`s
+plural `*.Tests.cs` is also excluded from prod, matching case-insensitively
+so lowercase `*.test.cs` strips too). Tests see `internal`s
 directly: same assembly, no hacks.
 
 **Exe projects**: add one line after `<OutputType>` (see [Exes](#exes)):
@@ -40,9 +41,10 @@ directly: same assembly, no hacks.
 
 ## Behavior table
 
-`StfTest` defaults to `true` (via `-p:`, environment variable, or a body line;
-`1/0/yes/no/on/off` spellings accepted). Golden rule: **everything ships prod
-by default; test only shows up where it belongs**.
+`StfTest` defaults to `true` (via `-p:`, environment variable, or a body line).
+`1/0/yes/no/on/off` spellings are accepted for `StfTest` and every flag below
+(`StfSeparateOutputs`, `StfDualBuild`, all `StfAllow*`). Golden rule:
+**everything ships prod by default; test only shows up where it belongs**.
 
 ### `dotnet build`
 
@@ -66,8 +68,10 @@ by default; test only shows up where it belongs**.
 
 Escape hatches: `StfAllowTestSlicePack` / `StfAllowTestSlicePublish` = `true`
 ship the test slice as-is. `StfDualBuild=false` disables the dual build.
-`StfAllowExeTestMode=true` silences the exe guard. In the IDE, `#if STF_TEST`
-marks test-only code.
+`StfAllowExeTestMode=true` silences the exe guard. `StfAllowPack=false` leaves
+`pack` fully alone (no prod redirect: pack behaves like a plain test project).
+`StfAllowBareTestRefs=true` silences the unconditioned-ref warning (also
+covers `xunit.v3`). In the IDE, `#if STF_TEST` marks test-only code.
 
 ## Why the snippet looks like this
 
@@ -138,3 +142,8 @@ without a `Program.cs`, never notice.
   the nested prod build (it would clobber the test closure); prod arrives via
   an explicit `-p:StfTest=false` build. Like `-c`, repeat the flag on every
   command (`build` and `test`), it is per-invocation.
+- Multi-`TargetFramework` `dotnet pack` is a silent no-op (exit 0, packs
+  nothing): the dispatcher skips package imports and the CLI never reaches
+  the redirect. `dotnet publish` without `-f` fails loud instead (upstream
+  NETSDK1129). Either way: ship with explicit `dotnet pack -p:StfTest=false`
+  (verified pure, all TFMs).
