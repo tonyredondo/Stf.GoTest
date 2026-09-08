@@ -172,12 +172,20 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # The nupkg filename is discovered by glob, never by parsing msbuild
+      # stdout: -getProperty output proved unreliable for paths on runners
+      # (a corrupt variable made extractions silently empty and the gate
+      # passed vacuously twice). The non-empty guards below make a repeat
+      # structurally impossible: an empty extraction fails loud.
       - name: Pack the release nupkg
         run: |
           rm -rf artifacts/ci-package /tmp/stf-pkgb
           dotnet pack src/Stf.GoTest/Stf.GoTest.csproj -c Release -o artifacts/ci-package -nologo
-          V=$(dotnet msbuild src/Stf.GoTest/Stf.GoTest.csproj -getProperty:Version | tr -d ' \r\n')
-          echo "STF_VERSION=$V" >> "$GITHUB_ENV"
+          shopt -s nullglob
+          PKG=(artifacts/ci-package/*.nupkg)
+          test ${#PKG[@]} -eq 1 || { echo "expected exactly one nupkg, found ${#PKG[@]}"; exit 1; }
+          echo "STF_PKG_PATH=${PKG[0]}" >> "$GITHUB_ENV"
+          echo "STF_PKG_NAME=$(basename "${PKG[0]}" .nupkg)" >> "$GITHUB_ENV"
 
       # Determinism gate: the same checkout packed twice from clean must ship
       # byte-identical content (nuspec + build wiring). A full-zip compare is
@@ -189,23 +197,21 @@ jobs:
         run: |
           rm -rf src/Stf.GoTest/bin src/Stf.GoTest/obj
           dotnet pack src/Stf.GoTest/Stf.GoTest.csproj -c Release -o /tmp/stf-pkgb -nologo
+          NUPKG_B=$(echo /tmp/stf-pkgb/*.nupkg)
+          test -f "$NUPKG_B" || { echo 'second pack produced no nupkg'; exit 1; }
           for d in /tmp/stf-cmpa /tmp/stf-cmpb; do rm -rf "$d"; mkdir -p "$d"; done
-          unzip -oq "artifacts/ci-package/Stf.GoTest.$STF_VERSION.nupkg" '*.nuspec' 'build/*' 'buildTransitive/*' -d /tmp/stf-cmpa
-          unzip -oq "/tmp/stf-pkgb/Stf.GoTest.$STF_VERSION.nupkg" '*.nuspec' 'build/*' 'buildTransitive/*' -d /tmp/stf-cmpb
+          unzip -oq "$STF_PKG_PATH" '*.nuspec' 'build/*' 'buildTransitive/*' -d /tmp/stf-cmpa
+          unzip -oq "$NUPKG_B" '*.nuspec' 'build/*' 'buildTransitive/*' -d /tmp/stf-cmpb
+          test -n "$(ls -A /tmp/stf-cmpa)" || { echo 'empty extraction A: gate would pass vacuously'; exit 1; }
+          test -n "$(ls -A /tmp/stf-cmpb)" || { echo 'empty extraction B: gate would pass vacuously'; exit 1; }
+          find /tmp/stf-cmpa -type f | sort
           diff -r /tmp/stf-cmpa /tmp/stf-cmpb || { echo 'NON-DETERMINISTIC PACKAGE CONTENT'; exit 1; }
           echo 'DETERMINISTIC-CONTENT-OK'
 
-      - name: Debug artifact visibility
-        run: |
-          pwd
-          echo "WORKSPACE=$GITHUB_WORKSPACE"
-          ls -la artifacts/ci-package/
-          test -f "artifacts/ci-package/Stf.GoTest-$STF_VERSION.nupkg" && echo FILE-VISIBLE-TO-BASH
-
       - uses: actions/upload-artifact@v4
         with:
-          name: Stf.GoTest-${{ env.STF_VERSION }}
-          path: artifacts/ci-package/Stf.GoTest-${{ env.STF_VERSION }}.nupkg
+          name: ${{ env.STF_PKG_NAME }}
+          path: ${{ env.STF_PKG_PATH }}
 
   aot:
     runs-on: ubuntu-latest
