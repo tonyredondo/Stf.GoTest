@@ -621,6 +621,59 @@ class PackageTests(unittest.TestCase):
         self.dotnet(folder, "pack", "-p:PackageOutputPath=" + str(packages))
         self.assertTrue((packages / "Case.1.0.0.nupkg").exists())
 
+    def test_same_mode_spelling_flip_is_incremental(self):
+        # 1 and yes select the same test mode: the rebuild marker
+        # (StfForceRebuildOnModeSwitch) must not delete the intermediate
+        # outputs over the raw spelling. Verified against the old raw
+        # comparison: it recompiled the slice here. The restore-mode marker
+        # cannot be exercised from the CLI: package targets are not imported
+        # during the CLI's graph restore (verified: no marker file is ever
+        # written by dotnet build/restore).
+        folder = self.project()
+        self.dotnet(folder, "build", "-p:StfDualBuild=false", "-p:StfTest=1")
+        reference = folder / "refmark"
+        reference.write_text("after build")
+        self.dotnet(folder, "build", "-p:StfDualBuild=false", "-p:StfTest=yes")
+        rebuilt = [str(p) for p in (folder / "bin").rglob("Case.dll") if p.stat().st_mtime >= reference.stat().st_mtime]
+        self.assertEqual(rebuilt, [])
+        # A real mode flip still rebuilds: prod over a shared directory.
+        shared = self.project(name="mode-flip-shared")
+        self.dotnet(shared, "build", "-p:StfDualBuild=false", "-p:StfSeparateOutputs=false")
+        before = (shared / "bin/Debug/net8.0/Case.dll").stat().st_mtime
+        self.dotnet(shared, "build", "-p:StfDualBuild=false", "-p:StfSeparateOutputs=false", "-p:StfTest=false")
+        self.assertGreater((shared / "bin/Debug/net8.0/Case.dll").stat().st_mtime, before)
+
+    def test_bin_decoy_does_not_silence_exe_guard(self):
+        # A stale Program.cs under bin/ (past publish output) is not a
+        # conventional entry file: the guard must stay loud.
+        folder = self.project("<OutputType>Exe</OutputType>")
+        (folder / "App.cs").write_text('public static class App { public static void Main() { System.Console.WriteLine(3); } }')
+        bin_dir = folder / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "Program.cs").write_text("// stale copy from a past publish\n")
+        self.dotnet(folder, "restore")
+        output = self.dotnet(folder, "build", success=False)
+        self.assertIn("Stf.GoTest: entry point", output)
+        # The entry probe must not see the bin/ copy (item-derived properties
+        # cannot be read back with -getProperty: it prints the literal
+        # @(StfEntryProbe); use the -getItem JSON).
+        probe = subprocess.run(["dotnet", "msbuild", "Case.csproj", "-getItem:StfEntryProbe", "-nologo"],
+                               cwd=folder, env=self.env, text=True, capture_output=True, timeout=90)
+        self.assertNotIn("Program.cs", probe.stdout)
+
+    def test_prod_mode_dotnet_test_warns(self):
+        folder = self.project()
+        output = self.dotnet(folder, "test", "-p:StfTest=false")
+        self.assertIn("0 tests ran", output)
+        # A direct prod build + --no-build test still warns: the CLI's VSTest
+        # phase evaluates prod either way.
+        self.dotnet(folder, "build", "-p:StfTest=false")
+        output = self.dotnet(folder, "test", "--no-build", "-p:StfTest=false")
+        self.assertIn("0 tests ran", output)
+        # Test mode never warns (noise check).
+        normal = self.dotnet(folder, "test")
+        self.assertNotIn("0 tests ran", normal)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

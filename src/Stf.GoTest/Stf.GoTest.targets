@@ -225,6 +225,14 @@
     <StfEntryProbe Include="**/Program.cs" />
     <StfEntryProbe Include="**/program.cs" />
   </ItemGroup>
+  <!-- bin/ and obj/ keep stale copies of past builds (pack/publish output,
+       cached sources). A Program.cs there is not a conventional entry file,
+       but it would make StfEntryList non-empty and stand the guard down to
+       the upstream CS0017. The Remove is guarded: an empty base would turn
+       the glob into bare '**/*.cs' and wipe the probes entirely. -->
+  <ItemGroup Condition="'$(BaseOutputPath)' != '' AND '$(BaseIntermediateOutputPath)' != ''">
+    <StfEntryProbe Remove="$(BaseOutputPath)**/*.cs;$(BaseIntermediateOutputPath)**/*.cs" />
+  </ItemGroup>
   <!-- Flattened to a scalar: conditions accept item vectors in NEITHER
        PropertyGroup (MSB4099, verified) NOR metadata form (MSB4190). -->
   <PropertyGroup>
@@ -396,15 +404,24 @@
   <Target Name="StfCheckRestoreMode" BeforeTargets="Restore">
     <PropertyGroup>
       <StfRestoreModeFile>$(BaseIntermediateOutputPath)stf-restore-mode.txt</StfRestoreModeFile>
+      <!-- Canonical mode for the marker (same twin logic as at the top):
+           spelling-stable. A raw $(StfTest) comparison made 1 <-> yes <->
+           true flips re-resolve the graph for nothing (same mode). Both
+           spellings are NON-EMPTY on purpose: an absent marker must keep
+           counting as a mismatch for prod too ('assets may have been
+           written bare, before this wiring existed'), and an empty marker
+           file would be indistinguishable from a never-recorded one. -->
+      <StfRestoreModeCurrent Condition="'$(StfTestIsTrue)' == 'true'">test</StfRestoreModeCurrent>
+      <StfRestoreModeCurrent Condition="'$(StfTestIsTrue)' != 'true'">prod</StfRestoreModeCurrent>
     </PropertyGroup>
     <ReadLinesFromFile File="$(StfRestoreModeFile)" Condition="Exists('$(StfRestoreModeFile)')">
       <Output TaskParameter="Lines" PropertyName="StfRestoreModeRecorded" />
     </ReadLinesFromFile>
     <Delete Files="$(MSBuildProjectExtensionsPath)project.assets.json;$(MSBuildProjectExtensionsPath)project.nuget.cache"
-            Condition="'$(StfRestoreModeRecorded)' != '$(StfTest)'" />
+            Condition="'$(StfRestoreModeRecorded)' != '$(StfRestoreModeCurrent)'" />
   </Target>
   <Target Name="StfRecordRestoreMode" AfterTargets="Restore">
-    <WriteLinesToFile File="$(StfRestoreModeFile)" Lines="$(StfTest)" Overwrite="true" />
+    <WriteLinesToFile File="$(StfRestoreModeFile)" Lines="$(StfRestoreModeCurrent)" Overwrite="true" />
   </Target>
 
   <!-- Dual build: a default build (or test) also refreshes the prod slice via a
@@ -468,6 +485,20 @@
              Text="Stf.GoTest: PROD slice built: $(TargetPath)" />
   </Target>
 
+  <!-- 'dotnet test' in prod mode builds prod and finds no tests: the CLI
+       exits 0 silently (a plain project behaves the same, but here the
+       0-test run is OUR design, so own it with a warning). Hooks run even
+       when the hooked target is skipped by its own condition (verified),
+       so the hook fires after VSTest whether or not that target ran. The
+       nested prod builds of the dual never run VSTest, and no flag is
+       needed: prod mode with an explicit 'test' command is the only shape
+       that reaches this. -->
+  <Target Name="StfWarnProdSliceTest"
+          AfterTargets="VSTest"
+          Condition="'$(StfTestIsTrue)' != 'true' AND '$(StfNested)' == ''">
+    <Warning Text="Stf.GoTest: 'dotnet test' built the PROD slice: 0 tests ran. Drop -p:StfTest=false (and the &lt;StfTest&gt;false&lt;/StfTest&gt; line in exes) to run the tests." />
+  </Target>
+
   <!--
     Prod compilation: strip Go-style test files. Singular *.Test.cs (like Go's
     _test.go) is the documented convention; plural *.Tests.cs is stripped too,
@@ -495,15 +526,24 @@
     <ReadLinesFromFile File="$(StfModeFile)" Condition="Exists('$(StfModeFile)')">
       <Output TaskParameter="Lines" PropertyName="StfPreviousMode" />
     </ReadLinesFromFile>
+    <PropertyGroup>
+      <!-- Canonical mode (same spelling-stability as the restore marker): a
+           raw $(StfTest) comparison made 1 <-> yes <-> true flips delete the
+           intermediate outputs and force a full recompile of the same slice
+           (verified against the old raw comparison). Non-empty in both
+           modes so the marker file always records an unambiguous value. -->
+      <StfBuildModeCurrent Condition="'$(StfTestIsTrue)' == 'true'">test</StfBuildModeCurrent>
+      <StfBuildModeCurrent Condition="'$(StfTestIsTrue)' != 'true'">prod</StfBuildModeCurrent>
+    </PropertyGroup>
     <!-- Surgical deletes only: wiping IntermediateOutputPath mid-build would also
          remove already-generated sources (AssemblyInfo) and break this build. -->
     <Delete Files="$(TargetPath)"
-            Condition="'$(StfPreviousMode)' != '' AND '$(StfPreviousMode)' != '$(StfTest)' AND Exists('$(TargetPath)')" />
+            Condition="'$(StfPreviousMode)' != '' AND '$(StfPreviousMode)' != '$(StfBuildModeCurrent)' AND Exists('$(TargetPath)')" />
     <Delete Files="$(IntermediateOutputPath)$(TargetFileName)"
-            Condition="'$(StfPreviousMode)' != '' AND '$(StfPreviousMode)' != '$(StfTest)' AND Exists('$(IntermediateOutputPath)$(TargetFileName)')" />
+            Condition="'$(StfPreviousMode)' != '' AND '$(StfPreviousMode)' != '$(StfBuildModeCurrent)' AND Exists('$(IntermediateOutputPath)$(TargetFileName)')" />
     <Delete Files="$(IntermediateOutputPath)ref/$(TargetFileName);$(IntermediateOutputPath)refint/$(TargetFileName)"
-            Condition="'$(StfPreviousMode)' != '' AND '$(StfPreviousMode)' != '$(StfTest)'" />
-    <WriteLinesToFile File="$(StfModeFile)" Lines="$(StfTest)" Overwrite="true" />
+            Condition="'$(StfPreviousMode)' != '' AND '$(StfPreviousMode)' != '$(StfBuildModeCurrent)'" />
+    <WriteLinesToFile File="$(StfModeFile)" Lines="$(StfBuildModeCurrent)" Overwrite="true" />
   </Target>
 
   <!-- Register dispatchers after the SDK defines its command targets. They
