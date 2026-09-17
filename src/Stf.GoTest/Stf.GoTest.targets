@@ -367,8 +367,13 @@
       <StfRestoreModeFile>$(BaseIntermediateOutputPath)stf-restore-mode.txt</StfRestoreModeFile>
       <!-- Canonical mode for the marker (same twin logic as at the top):
            spelling-stable. A raw $(StfTest) comparison made 1 <-> yes <->
-           true flips re-resolve the graph for nothing (same mode). -->
+           true flips re-resolve the graph for nothing (same mode). Both
+           spellings are NON-EMPTY on purpose: an absent marker must keep
+           counting as a mismatch for prod too ('assets may have been
+           written bare, before this wiring existed'), and an empty marker
+           file would be indistinguishable from a never-recorded one. -->
       <StfRestoreModeCurrent Condition="'$(StfTestIsTrue)' == 'true'">test</StfRestoreModeCurrent>
+      <StfRestoreModeCurrent Condition="'$(StfTestIsTrue)' != 'true'">prod</StfRestoreModeCurrent>
     </PropertyGroup>
     <ReadLinesFromFile File="$(StfRestoreModeFile)" Condition="Exists('$(StfRestoreModeFile)')">
       <Output TaskParameter="Lines" PropertyName="StfRestoreModeRecorded" />
@@ -502,8 +507,11 @@
     <PropertyGroup>
       <!-- Canonical mode (same spelling-stability as the restore marker): a
            raw $(StfTest) comparison made 1 <-> yes <-> true flips delete the
-           intermediate outputs and force a full recompile of the same slice. -->
+           intermediate outputs and force a full recompile of the same slice
+           (verified against the old raw comparison). Non-empty in both
+           modes so the marker file always records an unambiguous value. -->
       <StfBuildModeCurrent Condition="'$(StfTestIsTrue)' == 'true'">test</StfBuildModeCurrent>
+      <StfBuildModeCurrent Condition="'$(StfTestIsTrue)' != 'true'">prod</StfBuildModeCurrent>
     </PropertyGroup>
     <!-- Surgical deletes only: wiping IntermediateOutputPath mid-build would also
          remove already-generated sources (AssemblyInfo) and break this build. -->
