@@ -463,15 +463,6 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # The nupkg filename is discovered by glob, never by parsing msbuild
-      # stdout: -getProperty output proved unreliable for paths on runners
-      # (a corrupt variable made extractions silently empty and the gate
-      # passed vacuously twice). The non-empty guards below make a repeat
-      # structurally impossible: an empty extraction fails loud.
-      # Every release pin must travel together: csproj version, demo SDK pin,
-      # README current-version + SDK snippet, and the .gitignore feed
-      # exception. Quoted patterns stay substring-safe (0.1.5 cannot match a
-      # 0.1.54 pin through the closing quote).
       - name: Version pins are in sync
         run: |
           V=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' src/Stf.GoTest/Stf.GoTest.csproj)
@@ -481,6 +472,15 @@ jobs:
           grep -q "\`$V\`" README.md || { echo "README current-version pin is not $V"; exit 1; }
           grep -q "Stf.GoTest/$V\"" README.md || { echo "README SDK snippet does not pin $V"; exit 1; }
 
+      # The nupkg filename is discovered by glob, never by parsing msbuild
+      # stdout: -getProperty output proved unreliable for paths on runners
+      # (a corrupt variable made extractions silently empty and the gate
+      # passed vacuously twice). The non-empty guards below make a repeat
+      # structurally impossible: an empty extraction fails loud.
+      # Every release pin must travel together: csproj version, demo SDK pin,
+      # README current-version + SDK snippet, and the .gitignore feed
+      # exception. Quoted patterns stay substring-safe (0.1.5 cannot match a
+      # 0.1.54 pin through the closing quote).
       - name: Pack the release nupkg
         run: |
           rm -rf artifacts/ci-package /tmp/stf-pkgb

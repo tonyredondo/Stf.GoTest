@@ -620,6 +620,7 @@ class PackageTests(unittest.TestCase):
         self.assert_prod(output)
         self.dotnet(folder, "pack", "-p:PackageOutputPath=" + str(packages))
         self.assertTrue((packages / "Case.1.0.0.nupkg").exists())
+
     def test_same_mode_spelling_flip_is_incremental(self):
         # 1 and yes select the same test mode: the rebuild marker
         # (StfForceRebuildOnModeSwitch) must not delete the intermediate

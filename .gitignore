@@ -4,3 +4,4 @@
 *.nupkg
 !artifacts/packages/Stf.GoTest.0.1.59.nupkg
 artifacts/nuget-cache/
+__pycache__/
