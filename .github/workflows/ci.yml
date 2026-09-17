@@ -251,8 +251,7 @@ jobs:
           cd "$S/libprog"
           rm -rf bin obj
           dotnet build libprog.csproj -p:StfDualBuild=0 -p:StfTest=1 >/dev/null
-          DLL=$(stat -c %Y bin/test/Debug/net8.0/libprog.dll)
-          sleep 1
+          touch refmark
           # Same mode, different spelling: the rebuild marker
           # (StfForceRebuildOnModeSwitch, which runs on every build) must not
           # delete the intermediate outputs over the raw spelling. Verified
@@ -261,8 +260,10 @@ jobs:
           # targets are not imported during the CLI's graph restore
           # (verified: no marker file is ever written by dotnet
           # build/restore), so its canonical comparison is consistency-only.
+          # find -newer over a post-build reference file, no sleep, no stat:
+          # macOS stat has no -c and the reference makes timing moot.
           dotnet build libprog.csproj -p:StfDualBuild=0 -p:StfTest=yes >/dev/null
-          test "$DLL" = "$(stat -c %Y bin/test/Debug/net8.0/libprog.dll)" || { echo 'spelling flip forced a recompile'; exit 1; }
+          if find bin -name libprog.dll -newer refmark | grep -q .; then echo 'spelling flip forced a recompile'; exit 1; fi
 
       - name: Run forwards the RID to nested builds (R8)
         run: |
@@ -438,7 +439,10 @@ jobs:
           # Restore first: without the NuGet wiring in obj/ the probe check
           # would be vacuously empty (StfEntryList undefined).
           dotnet restore appmain.csproj >/dev/null
-          test -z "$(dotnet msbuild appmain.csproj -getProperty:StfEntryList -nologo 2>/dev/null | tr -d ' \t\r\n')" || { echo 'probe picked up a bin/ copy'; exit 1; }
+          # -getProperty cannot read item-derived properties (it prints the
+          # literal @(StfEntryProbe)): count items in the -getItem JSON.
+          N=$(dotnet msbuild appmain.csproj -getItem:StfEntryProbe -nologo 2>/dev/null | grep -c 'Program\.cs' || true)
+          test "$N" = 0 || { echo "probe picked up $N bin/ copy/ies"; exit 1; }
           if dotnet build appmain.csproj > /tmp/stf-decoy.log 2>&1; then echo 'UNEXPECTED PASS'; exit 1; fi
           grep -q 'Stf.GoTest: entry point' /tmp/stf-decoy.log
 
