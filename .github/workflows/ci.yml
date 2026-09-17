@@ -193,6 +193,13 @@ jobs:
           dotnet test libprog.csproj -p:StfSeparateOutputs=false --no-build 2>&1 | tee /tmp/stf-shared-test.log
           grep -q 'Passed!' /tmp/stf-shared-test.log
 
+      - name: Prod-mode dotnet test warns, exit 0 (R10)
+        run: |
+          cd "$S/libprog"
+          rm -rf bin obj
+          dotnet test libprog.csproj -p:StfTest=false 2>&1 | tee /tmp/stf-prodtest.log
+          grep -q '0 tests ran' /tmp/stf-prodtest.log
+
       - name: Flag spellings behave, dual opt-out works (R1)
         run: |
           cd "$S/libprog"
@@ -238,6 +245,21 @@ jobs:
           test -z "$(t StfAllowPackIsFalse StfAllowPack=1)"
           test "$(t StfAllowBareTestRefsIsTrue StfAllowBareTestRefs=on)" = "true"
           test "$(t StfSeparateTestOutputsApplied StfTest=1)" = "true"
+
+      - name: Twin markers keep spelling flips incremental (M-1)
+        run: |
+          cd "$S/libprog"
+          rm -rf bin obj
+          dotnet build libprog.csproj -p:StfDualBuild=0 -p:StfTest=1 >/dev/null
+          DLL=$(stat -c %Y bin/test/Debug/net8.0/libprog.dll)
+          A=$(stat -c %Y obj/project.assets.json)
+          sleep 1
+          # Same mode, different spelling: neither the intermediate outputs
+          # (StfForceRebuildOnModeSwitch) nor the restore closure
+          # (StfCheckRestoreMode) may churn on the raw spelling.
+          dotnet build libprog.csproj -p:StfDualBuild=0 -p:StfTest=yes >/dev/null
+          test "$DLL" = "$(stat -c %Y bin/test/Debug/net8.0/libprog.dll)" || { echo 'spelling flip forced a recompile'; exit 1; }
+          test "$A" = "$(stat -c %Y obj/project.assets.json)" || { echo 'spelling flip forced a re-restore'; exit 1; }
 
       - name: Run forwards the RID to nested builds (R8)
         run: |
@@ -404,6 +426,19 @@ jobs:
           grep -qE 'Stf.GoTest: entry point|error CS' /tmp/stf-backstop.log
           grep -q 'Stf.GoTest: entry point' /tmp/stf-backstop.log && echo 'BRANCH: loud Stf guard' || echo 'BRANCH: upstream compiler error (guard degraded)'
 
+      - name: bin/obj decoys do not stand the exe guard down (M-2)
+        run: |
+          cd "$S/appmain"
+          rm -rf bin obj
+          mkdir -p bin
+          printf 'not really an entry point\n' > bin/Program.cs
+          # Restore first: without the NuGet wiring in obj/ the probe check
+          # would be vacuously empty (StfEntryList undefined).
+          dotnet restore appmain.csproj >/dev/null
+          test -z "$(dotnet msbuild appmain.csproj -getProperty:StfEntryList -nologo 2>/dev/null | tr -d ' \t\r\n')" || { echo 'probe picked up a bin/ copy'; exit 1; }
+          if dotnet build appmain.csproj > /tmp/stf-decoy.log 2>&1; then echo 'UNEXPECTED PASS'; exit 1; fi
+          grep -q 'Stf.GoTest: entry point' /tmp/stf-decoy.log
+
       - name: Old snippet — fails loud without guard
         run: |
           cd "$S/oldsnip"
@@ -465,6 +500,18 @@ jobs:
       # (a corrupt variable made extractions silently empty and the gate
       # passed vacuously twice). The non-empty guards below make a repeat
       # structurally impossible: an empty extraction fails loud.
+      # Every release pin must travel together: csproj version, demo pin,
+      # README current-version + snippet, and the .gitignore feed exception.
+      # A lone csproj bump used to strand the other three at the old version.
+      - name: Version pins are in sync
+        run: |
+          V=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' src/Stf.GoTest/Stf.GoTest.csproj)
+          test -n "$V" || { echo 'could not read Version from csproj'; exit 1; }
+          grep -q "Version=\"$V\"" demo/Demo/Demo.csproj || { echo "demo/Demo.csproj does not pin $V"; exit 1; }
+          grep -q "Stf.GoTest.$V.nupkg" .gitignore || { echo ".gitignore feed exception is not $V"; exit 1; }
+          grep -q "\`$V\`" README.md || { echo "README current-version pin is not $V"; exit 1; }
+          grep -q "Version=\"$V\"" README.md || { echo "README package snippet does not pin $V"; exit 1; }
+
       - name: Pack the release nupkg
         run: |
           rm -rf artifacts/ci-package /tmp/stf-pkgb

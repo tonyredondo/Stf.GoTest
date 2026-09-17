@@ -6,7 +6,7 @@ A NuGet package that brings Go's test model to .NET: code and its tests live
 in the **same project** — no second test project, no `InternalsVisibleTo`.
 `*.Test.cs` files compile into the test slice and are excluded from prod.
 
-- Current version: `0.1.53` (local feed: `artifacts/packages`).
+- Current version: `0.1.54` (local feed: `artifacts/packages`).
 - Working demo: [`demo/Demo`](demo/Demo) (`Calculator.cs` + `Calculator.Test.cs`).
 
 ## Onboarding (3 steps)
@@ -14,7 +14,7 @@ in the **same project** — no second test project, no `InternalsVisibleTo`.
 **1. Package reference** (unconditional, always):
 
 ```xml
-<PackageReference Include="Stf.GoTest" Version="0.1.53" PrivateAssets="all" />
+<PackageReference Include="Stf.GoTest" Version="0.1.54" PrivateAssets="all" />
 ```
 
 **2. The test snippet** (the only copy-paste; see below for why each piece):
@@ -61,7 +61,7 @@ directly: same assembly, no hacks.
 
 | Command | no flag | `StfTest=false` |
 |---|---|---|
-| `test` (lib or exe) | runs the tests | builds prod, 0 tests, silent exit 0 |
+| `test` (lib or exe) | runs the tests | builds prod, 0 tests, warns |
 | `pack` / `publish` (lib or exe) | auto-redirect: **PROD only** | direct PROD |
 | `run` (exe) | **runs the prod app** | runs the app |
 | `run` (lib) | the CLI declines (`OutputType Library`) | same |
@@ -131,8 +131,8 @@ without a `Program.cs`, never notice.
 - `--no-restore` right after a dual `dotnet build` fails loud (`Xunit` not
   found): the dual leaves prod assets in `obj/` and only a restore heals back
   to the test closure. Any command with restore recovers.
-- `dotnet test` with `StfTest=false` goes green silently with 0 tests
-  (candidate for its own warning).
+- `dotnet test` with `StfTest=false` warns that 0 tests ran (the exit
+  code stays 0).
 - `*.Test.cs` that doesn't compile blocks `dotnet run` (the CLI's build phase
   is indistinguishable from `build`); failing asserts don't.
 - AOT verified via explicit prod only

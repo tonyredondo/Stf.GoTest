@@ -8,7 +8,7 @@
   <!-- Stf.GoTest stays UNCONDITIONAL: it owns the StfTest=true default.
        Everything below keys off that default. -->
   <ItemGroup>
-    <PackageReference Include="Stf.GoTest" Version="0.1.53" PrivateAssets="all" />
+    <PackageReference Include="Stf.GoTest" Version="0.1.54" PrivateAssets="all" />
   </ItemGroup>
   <!-- Test-only dependencies, the one copy-paste snippet onboarding needs.
        The Condition (not the package) hides them from prod restore: graph
